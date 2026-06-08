@@ -19,14 +19,6 @@ Use this repository for the MNSCloud InfraGIS Flutter mobile field client.
 
 ## Validation
 
-Before Flutter scaffold exists:
-
-```bash
-git diff --check
-```
-
-After Flutter scaffold exists:
-
 ```bash
 flutter pub get
 flutter analyze

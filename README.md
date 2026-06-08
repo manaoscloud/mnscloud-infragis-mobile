@@ -1,18 +1,26 @@
 # MNSCloud InfraGIS Mobile
 
-MNSCloud InfraGIS Mobile is the planned public Flutter field client for the MNSCloud InfraGIS
-module.
+MNSCloud InfraGIS Mobile is the public Flutter field client for the MNSCloud InfraGIS module.
 
-The application is an offline-first API client. It does not own business rules, tenant scope,
-billing, storage authorization, synchronization acceptance, or conflict resolution. Those decisions
-belong to the MNSCloud API and database.
+The current implementation is an online API client shell with API base configuration, MNSCloud API
+login, tenant environment selection, InfraGIS dashboard metrics, and project listing. Offline-first
+sync remains a roadmap item owned by the API contract.
+
+The application does not own business rules, tenant scope, billing, storage authorization,
+synchronization acceptance, or conflict resolution. Those decisions belong to the MNSCloud API and
+database.
 
 ## Scope
 
-Initial scope:
+Implemented scope:
 
 - MNSCloud API login
 - tenant environment selection
+- InfraGIS dashboard read
+- InfraGIS project list read
+
+Roadmap scope:
+
 - offline unlock with local PIN or device biometrics
 - project, layer, and asset download
 - SQLite local cache
@@ -31,7 +39,7 @@ Out of scope:
 - API authorization bypasses
 - local-only billing or entitlement decisions
 - public bucket/object URLs as an authorization boundary
-- ISP-only data modeling
+- single-industry data modeling
 
 ## Target Platforms
 
@@ -57,7 +65,7 @@ Online login flow:
 
 Offline unlock is local access to previously authorized encrypted data. It is not a new login.
 
-## Offline Data
+## Offline Data Roadmap
 
 SQLite is the canonical local database for offline field operations.
 
@@ -106,21 +114,21 @@ mnscloud-infragis-mobile/
     roadmap.md
   lib/
     main.dart
-    src/
-      app/
-      auth/
-      tenant/
-      sync/
-      storage/
-      infragis/
-      shared/
   test/
 ```
 
-Native platform folders should be generated with the Flutter SDK once development starts:
+Native platform folders should be generated only when packaging for the target platforms:
 
 ```bash
 flutter create --platforms android,ios,windows,linux,macos .
 ```
 
 Run that command only in a clean working tree and review generated files before committing.
+
+## Validation
+
+```bash
+flutter pub get
+flutter analyze
+flutter test
+```
