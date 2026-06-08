@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  docs-and-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Whitespace check
+        run: git diff --check HEAD
+
+      - name: Secret placeholder check
+        run: |
+          if grep -RInE '(AKIA[0-9A-Z]{16}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|xox[baprs]-|gh[pousr]_[A-Za-z0-9_]{20,})' . --exclude-dir=.git; then
+            echo "Potential secret detected."
+            exit 1
+          fi

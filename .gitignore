@@ -1,0 +1,34 @@
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+coverage/
+pubspec.lock
+
+# Native generated/build output
+android/.gradle/
+android/app/build/
+ios/Pods/
+ios/.symlinks/
+macos/Pods/
+linux/flutter/ephemeral/
+windows/flutter/ephemeral/
+
+# IDE/local
+.idea/
+.vscode/
+*.iml
+*.log
+*.tmp
+
+# Secrets/local config
+.env
+*.env
+*.pem
+*.key
+*.p12
+*.mobileprovision
+*.keystore
+local.properties
