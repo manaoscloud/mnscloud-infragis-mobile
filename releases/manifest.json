@@ -1,0 +1,12 @@
+{
+  "product": "mnscloud-infragis-mobile",
+  "repository": "manaoscloud/mnscloud-infragis-mobile",
+  "channels": {
+    "stable": {
+      "version": "0.1.1",
+      "ref": "v0.1.1",
+      "releasedAt": "2026-06-16T20:20:51Z",
+      "minimumVersion": "0.1.0"
+    }
+  }
+}
