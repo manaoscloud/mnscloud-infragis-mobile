@@ -116,13 +116,13 @@ class InfraGisApiClient {
   }
 
   Future<Map<String, dynamic>> dashboard() async {
-    final response = await http.get(_uri('/infragis/'), headers: _headers);
+    final response = await http.get(_uri('/infragis/dashboard'), headers: _headers);
     return _decodeResponse(response);
   }
 
   Future<List<Map<String, dynamic>>> projects() async {
     final response = await http.get(
-      _uri('/infragis/projects', {'limit': '1000', 'offset': '0'}),
+      _uri('/infragis/projects', {'limit': '500', 'offset': '0'}),
       headers: _headers,
     );
     final payload = _decodeResponse(response);
@@ -169,7 +169,7 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _baseUrl = TextEditingController(text: 'https://dev.publichost.cloud/api/v1');
+  final _baseUrl = TextEditingController();
   final _email = TextEditingController();
   final _password = TextEditingController();
 
@@ -305,6 +305,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         controller: _baseUrl,
                         decoration: const InputDecoration(
                           labelText: 'API base URL',
+                          hintText: 'https://your-mnscloud-domain/api/v1',
                           prefixIcon: Icon(Icons.cloud_rounded),
                         ),
                         validator: (value) =>
@@ -409,8 +410,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Object _metric(String key) {
     final summary = _summary['summary'];
-    if (summary is Map<String, dynamic>) return summary[key] ?? 0;
-    return _summary[key] ?? 0;
+    // A missing metric is unavailable, never a fake zero.
+    if (summary is Map<String, dynamic>) return summary[key] ?? '—';
+    return _summary[key] ?? '—';
   }
 
   @override

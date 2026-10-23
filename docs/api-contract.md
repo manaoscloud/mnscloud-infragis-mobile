@@ -16,6 +16,16 @@ Authorization: Bearer <token>
 X-Environment-UUID: <environment_uuid>
 ```
 
+## InfraGIS (current)
+
+```text
+GET /api/v1/infragis/dashboard        (tenant.infragis.assets.read)
+GET /api/v1/infragis/projects         (tenant.infragis.projects.read, limit up to 5000)
+```
+
+Responses use the canonical envelope `{ status, message, data, duration }`; lists return
+`data: { items, total, limit, offset }`. A missing metric is shown as unavailable, never as `0`.
+
 ## Planned InfraGIS Sync
 
 ```text

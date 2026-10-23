@@ -1,0 +1,24 @@
+name: Flutter
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  analyze-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - name: No real platform domains in the public client
+        run: |
+          if grep -RInE 'publichost\.cloud' lib test docs README.md; then
+            echo "Use placeholders instead of platform domains (docs/public-api-clients.md)."
+            exit 1
+          fi
