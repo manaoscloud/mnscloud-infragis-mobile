@@ -25,4 +25,6 @@ jobs:
       version: ${{ github.event.inputs.version || '' }}
       setup_deno: true
       checkout_runtime_kit: true
+      # main is protected: only the release tag is pushed (runtime-kit tag_only).
+      tag_only: true
     secrets: inherit
