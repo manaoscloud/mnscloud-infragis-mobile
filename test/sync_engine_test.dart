@@ -72,6 +72,12 @@ class FakeApi implements FieldApi {
   @override
   Future<List<Map<String, dynamic>>> workOrderMaterials(String orderUuid) async => const [];
 
+  final checklist = <Map<String, dynamic>>[];
+
+  @override
+  Future<List<Map<String, dynamic>>> workOrderChecklist(String orderUuid) async =>
+      checklist.map((item) => {...item}).toList();
+
   @override
   Future<List<Map<String, dynamic>>> stockProducts() async => [
         {'SprUUID': 'P1', 'SprName': 'CABO DROP'},
@@ -85,7 +91,7 @@ class FakeApi implements FieldApi {
   @override
   Future<void> sendWorkOrderAction(String kind, String orderUuid, Map<String, dynamic> body) async {
     if (actionFailure != null) throw actionFailure!;
-    sentActions.add('$kind:$orderUuid:${body['status'] ?? body['note'] ?? body['productUUID'] ?? ''}');
+    sentActions.add('$kind:$orderUuid:${body['status'] ?? body['note'] ?? body['productUUID'] ?? body['itemUUID'] ?? ''}');
   }
 
   @override
@@ -231,5 +237,28 @@ void main() {
     expect(report.revoked, isFalse);
     expect(store.meta('workOrders'), 'unavailable');
     expect(store.assets(), isNotEmpty, reason: 'the asset copy stays');
+  });
+
+  test('checking a checklist item applies offline and survives the next order refresh', () async {
+    final api = FakeApi()
+      ..bootstrapPages.add(const SyncPage(items: [], cursor: 'c0', done: true))
+      ..orders.add({'WorUUID': order, 'WorTitle': 'Instalar', 'WorStatus': 'IN_PROGRESS'})
+      ..checklist.add({'WciUUID': 'I1', 'WciLabel': 'Medir sinal', 'WciRequired': 1, 'WciDone': 0});
+    final store = LocalStore.open(':memory:', key: '');
+    await engine(api, store).run();
+    expect((store.workOrder(order)!['checklist'] as List).single['WciDone'], 0);
+
+    store.queueWorkOrderAction(operationUuid: 'c1', kind: 'check', orderUuid: order, body: {'itemUUID': 'I1', 'done': true}, now: DateTime.utc(2026));
+    expect((store.workOrder(order)!['checklist'] as List).single['WciDone'], 1);
+    api.actionFailure = const ApiException('offline', status: 503);
+    await engine(api, store).run();
+    expect((store.workOrder(order)!['checklist'] as List).single['WciDone'], 1, reason: 'the queued check is re-applied');
+
+    api.actionFailure = null;
+    api.checklist.first['WciDone'] = 1;
+    // After the backoff.
+    await SyncEngine(api: api, store: store, clock: () => DateTime.now().add(const Duration(hours: 1))).run();
+    expect(api.sentActions, ['check:$order:I1']);
+    expect(store.workOrderActions(), isEmpty);
   });
 }

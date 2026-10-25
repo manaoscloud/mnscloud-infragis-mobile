@@ -145,7 +145,7 @@ class FieldController extends ChangeNotifier {
       orderUuid: orderUuid,
       body: {
         ...body,
-        if (kind == 'material') 'materialUUID': uuid else if (kind != 'issue') 'operationUUID': uuid,
+        if (kind == 'material') 'materialUUID': uuid else if (kind == 'status' || kind == 'note') 'operationUUID': uuid,
       },
       now: DateTime.now(),
     );

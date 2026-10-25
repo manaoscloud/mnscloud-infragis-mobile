@@ -19,6 +19,14 @@ bool transitionNeedsNote(String status) => status == 'DONE' || status == 'CANCEL
 
 String statusLabel(BuildContext context, String? status) => tr(context, 'wo.${status ?? 'OPEN'}');
 
+/// Checklist items of the offline copy.
+List<Map> checklistOf(Map<String, dynamic> order) =>
+    (order['checklist'] is List ? order['checklist'] as List : const []).whereType<Map>().toList();
+
+/// Required items still open: the API refuses DONE while there is one.
+int requiredOpen(Map<String, dynamic> order) =>
+    checklistOf(order).where((item) => '${item['WciRequired']}' == '1' && '${item['WciDone']}' != '1').length;
+
 /// Work orders assigned to the technician, from the offline copy.
 class WorkOrdersView extends StatelessWidget {
   const WorkOrdersView({super.key, required this.controller});
@@ -101,6 +109,11 @@ class WorkOrderScreen extends StatelessWidget {
   }
 
   Future<void> _transition(BuildContext context, String status) async {
+    final order = controller.store?.workOrder(orderUuid);
+    if (status == 'DONE' && order != null && requiredOpen(order) > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr(context, 'checklistRequired'))));
+      return;
+    }
     String? note;
     if (transitionNeedsNote(status)) {
       note = await _askNote(context, statusLabel(context, status), required: true);
@@ -186,6 +199,8 @@ class WorkOrderScreen extends StatelessWidget {
           return Scaffold(appBar: AppBar(), body: Center(child: Text(tr(context, 'noWorkOrders'))));
         }
         final status = order['WorStatus'] as String?;
+        final closed = status == 'DONE' || status == 'CANCELLED';
+        final checklist = checklistOf(order);
         final materials = (order['materials'] is List ? order['materials'] as List : const []).whereType<Map>().toList();
         final assetUuid = '${order['InfraGisAssetIgaUUID'] ?? ''}';
         final hasAsset = assetUuid.isNotEmpty && assetUuid != 'null';
@@ -240,6 +255,28 @@ class WorkOrderScreen extends StatelessWidget {
                     ),
                 ],
               ),
+              if (checklist.isNotEmpty) ...[
+                const Divider(height: 32),
+                Text(tr(context, 'checklist'), style: Theme.of(context).textTheme.titleMedium),
+                for (final item in checklist)
+                  CheckboxListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    value: '${item['WciDone']}' == '1',
+                    onChanged: closed
+                        ? null
+                        : (value) => controller.workOrderAction(
+                              'check',
+                              orderUuid,
+                              {'itemUUID': '${item['WciUUID']}', 'done': value == true},
+                            ),
+                    title: Text('${item['WciLabel'] ?? ''}${'${item['WciRequired']}' == '1' ? ' *' : ''}'),
+                    subtitle: item['pending'] == true
+                        ? Text(tr(context, 'notSent'))
+                        : (item['WciNote'] != null ? Text('${item['WciNote']}') : null),
+                  ),
+              ],
               const Divider(height: 32),
               Row(
                 children: [

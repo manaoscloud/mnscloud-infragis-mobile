@@ -164,6 +164,7 @@ class SyncEngine {
       final orders = await api.myWorkOrders();
       for (final order in orders) {
         order['materials'] = await api.workOrderMaterials('${order['WorUUID']}');
+        order['checklist'] = await api.workOrderChecklist('${order['WorUUID']}');
       }
       store.replaceWorkOrders(orders);
       store.setMeta('workOrders', 'available');

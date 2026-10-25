@@ -65,10 +65,11 @@ abstract class FieldApi {
   /// Open work orders assigned to the signed-in user.
   Future<List<Map<String, dynamic>>> myWorkOrders();
   Future<List<Map<String, dynamic>>> workOrderMaterials(String orderUuid);
+  Future<List<Map<String, dynamic>>> workOrderChecklist(String orderUuid);
   /// Stock products and locations for the material picker.
   Future<List<Map<String, dynamic>>> stockProducts();
   Future<List<Map<String, dynamic>>> stockLocations();
-  /// One queued field action: `status`, `note`, `material` or `issue`.
+  /// One queued field action: `status`, `note`, `material`, `issue` or `check` (checklist item).
   Future<void> sendWorkOrderAction(String kind, String orderUuid, Map<String, dynamic> body);
 }
 
@@ -270,6 +271,11 @@ class InfraGisApi implements FieldApi {
       );
 
   @override
+  Future<List<Map<String, dynamic>>> workOrderChecklist(String orderUuid) async => _items(
+        await _send(() => _client.get(uri('/workorders/orders/$orderUuid/checklist'), headers: headers())),
+      );
+
+  @override
   Future<List<Map<String, dynamic>>> stockProducts() async => _items(
         await _send(() => _client.get(uri('/sale/products', {'limit': '1000'}), headers: headers())),
       );
@@ -286,9 +292,13 @@ class InfraGisApi implements FieldApi {
       'note' => '/workorders/orders/$orderUuid/notes',
       'material' => '/workorders/orders/$orderUuid/materials',
       'issue' => '/workorders/orders/$orderUuid/materials/issue',
+      'check' => '/workorders/checklist/${body['itemUUID']}',
       _ => throw ApiException('Unknown work order action $kind', status: 400),
     };
-    await _send(() => _client.post(uri(path), headers: headers(), body: jsonEncode(body)));
+    // Checking sets the state of the item (PUT), so a retry is harmless.
+    await _send(() => kind == 'check'
+        ? _client.put(uri(path), headers: headers(), body: jsonEncode(body))
+        : _client.post(uri(path), headers: headers(), body: jsonEncode(body)));
   }
 
   @override

@@ -226,6 +226,14 @@ class LocalStore {
         });
       }
       order['materials'] = materials;
+    } else if (kind == 'check') {
+      order['checklist'] = [
+        for (final item in order['checklist'] is List ? order['checklist'] as List : const [])
+          if (item is Map && normalizeUuid('${item['WciUUID']}') == normalizeUuid('${body['itemUUID']}'))
+            {...item, 'WciDone': body['done'] == true ? 1 : 0, if (body['note'] != null) 'WciNote': body['note'], 'pending': true}
+          else
+            item,
+      ];
     }
     order['pending'] = true;
     _db.execute('UPDATE work_order SET item = ? WHERE uuid = ?', [jsonEncode(order), orderUuid]);
