@@ -19,23 +19,31 @@ X-Environment-UUID: <environment_uuid>
 ## InfraGIS (current)
 
 ```text
-GET /api/v1/infragis/dashboard        (tenant.infragis.assets.read)
-GET /api/v1/infragis/projects         (tenant.infragis.projects.read, limit up to 5000)
+GET  /api/v1/infragis/map/config                 (tenant.infragis.assets.read)
+GET  /api/v1/infragis/sync/bootstrap             (tenant.infragis.assets.read)
+GET  /api/v1/infragis/sync/changes?cursor=       (tenant.infragis.assets.read)
+POST /api/v1/infragis/sync/push                  (tenant.infragis.assets.write)
+POST /api/v1/infragis/assets/:uuid/attachments   (tenant.infragis.assets.write, multipart)
 ```
 
-Responses use the canonical envelope `{ status, message, data, duration }`; lists return
-`data: { items, total, limit, offset }`. A missing metric is shown as unavailable, never as `0`.
+Responses use the canonical envelope `{ status, message, data, duration }`.
 
-## Planned InfraGIS Sync
+- Bootstrap pages carry `items`, `cursor`, `done`; the first page also carries `catalog` (projects,
+  layers, categories, asset-types, statuses). The last cursor continues with `changes`.
+- Changes return assets changed after the cursor; deleted ones as `{ IgaUUID, deleted: true }`.
+- Push takes up to 100 operations `{ uuid, kind: asset.create|asset.update|asset.delete,
+  assetUUID, baseSyncAt?, data? }` and answers one result per operation: `ACCEPTED`, `DUPLICATE`
+  (same uuid and payload already applied), `CONFLICT` (`reason` changed/deleted, with the server
+  `item`), `REJECTED` (`error`) or `RETRY`.
+- Attachments take `file`, `attachmentUUID` (idempotent retry), `kind`, `caption`,
+  `latitude`/`longitude` and `capturedAt`.
+
+## Not yet available
 
 ```text
-GET  /api/v1/infragis/sync/bootstrap
-GET  /api/v1/infragis/sync/changes
-POST /api/v1/infragis/sync/push
-POST /api/v1/infragis/sync/ack
 GET  /api/v1/infragis/offline/packages
 POST /api/v1/infragis/offline/packages/:uuid/download-token
 ```
 
-These endpoints are planned and must be implemented in MNSCloud API before the mobile app depends on
-them.
+Offline base map packages need the platform PMTiles host; until then the map needs a connection
+for the base layer (the assets are always local).

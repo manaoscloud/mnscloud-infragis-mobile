@@ -2,9 +2,9 @@
 
 MNSCloud InfraGIS Mobile is the public Flutter field client for the MNSCloud InfraGIS module.
 
-The current implementation is an online API client shell with API base configuration, MNSCloud API
-login, tenant environment selection, InfraGIS dashboard metrics, and project listing. Offline-first
-sync remains a roadmap item owned by the API contract.
+The app signs in with the MNSCloud API account, keeps an encrypted offline copy of the tenant
+(catalogs and assets), collects point assets with GPS and photos while offline, and synchronizes
+through the InfraGIS sync contract (`docs/offline-sync.md`).
 
 The application does not own business rules, tenant scope, billing, storage authorization,
 synchronization acceptance, or conflict resolution. Those decisions belong to the MNSCloud API and
@@ -14,23 +14,21 @@ database.
 
 Implemented scope:
 
-- MNSCloud API login
-- tenant environment selection
-- InfraGIS dashboard read
-- InfraGIS project list read
+- MNSCloud API login and tenant environment selection (token in platform secure storage)
+- encrypted SQLite copy per tenant (SQLite3MultipleCiphers, key in secure storage)
+- bootstrap download of catalogs and assets, then incremental changes with tombstones
+- map (MapLibre with the platform base map) and offline asset list
+- point asset create/update/delete queue with GPS capture and asset type properties
+- photos with GPS and capture time, uploaded once the asset exists on the server
+- conflict and refusal presentation based on API decisions (keep mine / take the server)
+- remote wipe when the API removes the tenant access
 
 Roadmap scope:
 
 - offline unlock with local PIN or device biometrics
-- project, layer, and asset download
-- SQLite local cache
-- offline asset lookup
-- offline create/update queue
-- offline photos and attachments
-- GPS capture
-- work orders and checklists
-- incremental synchronization
-- conflict presentation based on API decisions
+- offline base map packages (PMTiles download)
+- network (ports, splices) and work orders in the field
+- line and polygon drawing on the device
 
 Out of scope:
 

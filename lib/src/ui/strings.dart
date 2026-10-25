@@ -1,0 +1,65 @@
+import 'package:flutter/widgets.dart';
+
+/// Interface texts in pt-BR (default), en and es, picked by the device language.
+const _texts = <String, List<String>>{
+  // key: [pt-BR, en, es]
+  'apiUrl': ['Endereço da API', 'API address', 'Dirección de la API'],
+  'apiUrlHint': ['https://exemplo.com.br/api/v1', 'https://example.com/api/v1', 'https://ejemplo.com/api/v1'],
+  'email': ['E-mail', 'E-mail', 'Correo'],
+  'password': ['Senha', 'Password', 'Contraseña'],
+  'signIn': ['Entrar', 'Sign in', 'Entrar'],
+  'signOut': ['Sair', 'Sign out', 'Salir'],
+  'required': ['Obrigatório', 'Required', 'Obligatorio'],
+  'chooseEnvironment': ['Escolha o ambiente', 'Choose the environment', 'Elija el entorno'],
+  'noEnvironment': ['Nenhum ambiente liberado para este usuário.', 'No environment for this user.', 'Ningún entorno para este usuario.'],
+  'map': ['Mapa', 'Map', 'Mapa'],
+  'assets': ['Ativos', 'Assets', 'Activos'],
+  'sync': ['Sincronizar', 'Sync', 'Sincronizar'],
+  'syncNow': ['Sincronizar agora', 'Sync now', 'Sincronizar ahora'],
+  'syncing': ['Sincronizando…', 'Syncing…', 'Sincronizando…'],
+  'lastSync': ['Última sincronização', 'Last sync', 'Última sincronización'],
+  'never': ['nunca', 'never', 'nunca'],
+  'pending': ['Pendentes de envio', 'Waiting to send', 'Pendientes de envío'],
+  'photosPending': ['Fotos pendentes', 'Photos waiting', 'Fotos pendientes'],
+  'conflicts': ['Conflitos e recusas', 'Conflicts and refusals', 'Conflictos y rechazos'],
+  'noConflicts': ['Nada a resolver.', 'Nothing to resolve.', 'Nada que resolver.'],
+  'keepMine': ['Manter a minha', 'Keep mine', 'Mantener la mía'],
+  'useServer': ['Usar a do servidor', 'Use the server one', 'Usar la del servidor'],
+  'discard': ['Descartar', 'Discard', 'Descartar'],
+  'collectHere': ['Coletar aqui', 'Collect here', 'Recolectar aquí'],
+  'newAsset': ['Novo ativo', 'New asset', 'Nuevo activo'],
+  'editAsset': ['Editar ativo', 'Edit asset', 'Editar activo'],
+  'name': ['Nome', 'Name', 'Nombre'],
+  'externalId': ['ID externo', 'External ID', 'ID externo'],
+  'project': ['Projeto', 'Project', 'Proyecto'],
+  'layer': ['Camada', 'Layer', 'Capa'],
+  'type': ['Tipo', 'Type', 'Tipo'],
+  'status': ['Situação', 'Status', 'Situación'],
+  'latitude': ['Latitude', 'Latitude', 'Latitud'],
+  'longitude': ['Longitude', 'Longitude', 'Longitud'],
+  'useGps': ['Usar GPS', 'Use GPS', 'Usar GPS'],
+  'gpsUnavailable': ['GPS indisponível ou sem permissão.', 'GPS unavailable or not allowed.', 'GPS no disponible o sin permiso.'],
+  'save': ['Salvar', 'Save', 'Guardar'],
+  'delete': ['Excluir', 'Delete', 'Eliminar'],
+  'deleteConfirm': ['Excluir este ativo?', 'Delete this asset?', '¿Eliminar este activo?'],
+  'cancel': ['Cancelar', 'Cancel', 'Cancelar'],
+  'savedOffline': ['Salvo no aparelho; vai na próxima sincronização.', 'Saved on the device; it goes with the next sync.', 'Guardado en el dispositivo; se envía en la próxima sincronización.'],
+  'takePhoto': ['Tirar foto', 'Take photo', 'Tomar foto'],
+  'photoQueued': ['Foto guardada para envio.', 'Photo queued for upload.', 'Foto guardada para envío.'],
+  'caption': ['Legenda', 'Caption', 'Leyenda'],
+  'search': ['Buscar', 'Search', 'Buscar'],
+  'noAssets': ['Nenhum ativo neste aparelho. Sincronize ou colete um.', 'No assets on this device. Sync or collect one.', 'Ningún activo en este dispositivo. Sincronice o recolecte uno.'],
+  'notSent': ['não enviado', 'not sent', 'no enviado'],
+  'revoked': ['O acesso a este ambiente foi removido; os dados locais foram apagados.', 'Access to this environment was removed; local data was erased.', 'El acceso a este entorno fue eliminado; los datos locales se borraron.'],
+  'sessionExpired': ['Sessão expirada. Entre de novo.', 'Session expired. Sign in again.', 'Sesión expirada. Entre de nuevo.'],
+  'properties': ['Propriedades', 'Properties', 'Propiedades'],
+  'onlyPoints': ['O app de campo coleta pontos; linhas e polígonos ficam no App web.', 'The field app collects points; lines and polygons stay in the web App.', 'La app de campo recolecta puntos; líneas y polígonos quedan en la App web.'],
+  'yes': ['Sim', 'Yes', 'Sí'],
+  'no': ['Não', 'No', 'No'],
+};
+
+String tr(BuildContext context, String key) {
+  final language = Localizations.maybeLocaleOf(context)?.languageCode ?? 'pt';
+  final index = switch (language) { 'en' => 1, 'es' => 2, _ => 0 };
+  return _texts[key]?[index] ?? key;
+}

@@ -4,13 +4,22 @@ publish_to: none
 version: 0.1.2
 
 environment:
-  sdk: ">=3.6.0 <4.0.0"
+  sdk: ">=3.10.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   cupertino_icons: ^1.0.8
   http: ^1.2.2
+  sqlite3: ^3.8.0
+  flutter_secure_storage: ^11.2.0
+  geolocator: ^14.1.2
+  image_picker: ^1.2.4
+  maplibre_gl: ^0.27.1
+  path_provider: ^2.1.6
+  crypto: ^3.0.7
 
 dev_dependencies:
   flutter_test:
@@ -19,3 +28,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+# Encrypted local database: SQLite3MultipleCiphers bundled by package:sqlite3 (key from secure storage).
+hooks:
+  user_defines:
+    sqlite3:
+      source: sqlite3mc
