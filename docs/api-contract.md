@@ -38,6 +38,26 @@ Responses use the canonical envelope `{ status, message, data, duration }`.
 - Attachments take `file`, `attachmentUUID` (idempotent retry), `kind`, `caption`,
   `latitude`/`longitude` and `capturedAt`.
 
+## Work orders (Work orders module)
+
+```text
+GET  /api/v1/workorders/orders?mine=1&openOnly=1&limit=200   (tenant.workorders.orders.read)
+GET  /api/v1/workorders/orders/:uuid/materials               (tenant.workorders.orders.read)
+POST /api/v1/workorders/orders/:uuid/status                  (tenant.workorders.orders.write)
+POST /api/v1/workorders/orders/:uuid/notes                   (tenant.workorders.orders.write)
+POST /api/v1/workorders/orders/:uuid/materials               (tenant.workorders.orders.write)
+POST /api/v1/workorders/orders/:uuid/materials/issue         (tenant.workorders.orders.write)
+GET  /api/v1/sale/products?limit=1000                        (Stock picker)
+GET  /api/v1/stock/locations?limit=500                       (Stock picker)
+```
+
+- `status` takes `status`, `note` (required for DONE and CANCELLED) and `operationUUID`; `notes`
+  takes `note` and `operationUUID`. A repeated `operationUUID` on the same order is answered with
+  the current state; on another order it is refused.
+- `materials` takes `materialUUID`, `productUUID`, `locationUUID`, `quantity`; a repeated
+  `materialUUID` returns the same material.
+- `materials/issue` moves the planned materials out of Stock; issuing twice has nothing left to move.
+
 ## Not yet available
 
 ```text

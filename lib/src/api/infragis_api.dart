@@ -61,6 +61,15 @@ abstract class FieldApi {
     double? longitude,
     DateTime? capturedAt,
   });
+
+  /// Open work orders assigned to the signed-in user.
+  Future<List<Map<String, dynamic>>> myWorkOrders();
+  Future<List<Map<String, dynamic>>> workOrderMaterials(String orderUuid);
+  /// Stock products and locations for the material picker.
+  Future<List<Map<String, dynamic>>> stockProducts();
+  Future<List<Map<String, dynamic>>> stockLocations();
+  /// One queued field action: `status`, `note`, `material` or `issue`.
+  Future<void> sendWorkOrderAction(String kind, String orderUuid, Map<String, dynamic> body);
 }
 
 /// MNSCloud API client: the platform login, tenant access and the InfraGIS field routes.
@@ -238,6 +247,48 @@ class InfraGisApi implements FieldApi {
     );
     final results = data(payload)['results'];
     return (results is List ? results : const []).whereType<Map<String, dynamic>>().toList();
+  }
+
+  List<Map<String, dynamic>> _items(Map<String, dynamic> payload) {
+    final items = data(payload)['items'];
+    return (items is List ? items : const []).whereType<Map<String, dynamic>>().toList();
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> myWorkOrders() async => _items(
+        await _send(
+          () => _client.get(
+            uri('/workorders/orders', {'mine': '1', 'openOnly': '1', 'limit': '200'}),
+            headers: headers(),
+          ),
+        ),
+      );
+
+  @override
+  Future<List<Map<String, dynamic>>> workOrderMaterials(String orderUuid) async => _items(
+        await _send(() => _client.get(uri('/workorders/orders/$orderUuid/materials'), headers: headers())),
+      );
+
+  @override
+  Future<List<Map<String, dynamic>>> stockProducts() async => _items(
+        await _send(() => _client.get(uri('/sale/products', {'limit': '1000'}), headers: headers())),
+      );
+
+  @override
+  Future<List<Map<String, dynamic>>> stockLocations() async => _items(
+        await _send(() => _client.get(uri('/stock/locations', {'limit': '500'}), headers: headers())),
+      );
+
+  @override
+  Future<void> sendWorkOrderAction(String kind, String orderUuid, Map<String, dynamic> body) async {
+    final path = switch (kind) {
+      'status' => '/workorders/orders/$orderUuid/status',
+      'note' => '/workorders/orders/$orderUuid/notes',
+      'material' => '/workorders/orders/$orderUuid/materials',
+      'issue' => '/workorders/orders/$orderUuid/materials/issue',
+      _ => throw ApiException('Unknown work order action $kind', status: 400),
+    };
+    await _send(() => _client.post(uri(path), headers: headers(), body: jsonEncode(body)));
   }
 
   @override

@@ -22,12 +22,15 @@ Implemented scope:
 - photos with GPS and capture time, uploaded once the asset exists on the server
 - conflict and refusal presentation based on API decisions (keep mine / take the server)
 - remote wipe when the API removes the tenant access
+- work orders assigned to the technician: start, hold, finish or cancel with a note, notes,
+  materials from Stock and their issue, asset photos; queued offline with client operation UUIDs
 
 Roadmap scope:
 
 - offline unlock with local PIN or device biometrics
 - offline base map packages (PMTiles download)
-- network (ports, splices) and work orders in the field
+- network (ports, splices) in the field
+- work order checklists
 - line and polygon drawing on the device
 
 Out of scope:

@@ -8,6 +8,7 @@ import '../data/local_store.dart';
 import '../field_controller.dart';
 import 'asset_form.dart';
 import 'strings.dart';
+import 'work_orders.dart';
 
 /// Map, asset list and sync status of the signed-in tenant.
 class HomeScreen extends StatefulWidget {
@@ -47,11 +48,15 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final session = _controller.session!;
+    final orders = _controller.workOrdersAvailable;
     final pages = [
       FieldMapView(controller: _controller, onOpen: (uuid) => _open(assetUuid: uuid)),
       AssetListView(controller: _controller, onOpen: (uuid) => _open(assetUuid: uuid)),
+      if (orders) WorkOrdersView(controller: _controller),
       SyncView(controller: _controller),
     ];
+    // The orders tab comes and goes with the Work orders module.
+    final tab = _tab.clamp(0, pages.length - 1);
     return Scaffold(
       appBar: AppBar(
         title: Text(session.environmentName, overflow: TextOverflow.ellipsis),
@@ -66,8 +71,8 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(tooltip: tr(context, 'signOut'), onPressed: _controller.signOut, icon: const Icon(Icons.logout)),
         ],
       ),
-      body: IndexedStack(index: _tab, children: pages),
-      floatingActionButton: _tab == 2
+      body: IndexedStack(index: tab, children: pages),
+      floatingActionButton: tab >= 2
           ? null
           : FloatingActionButton.extended(
               onPressed: _collectHere,
@@ -75,14 +80,18 @@ class _HomeScreenState extends State<HomeScreen> {
               label: Text(tr(context, 'collectHere')),
             ),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
+        selectedIndex: tab,
         onDestinationSelected: (index) => setState(() => _tab = index),
         destinations: [
           NavigationDestination(icon: const Icon(Icons.map_outlined), label: tr(context, 'map')),
           NavigationDestination(icon: const Icon(Icons.list_alt), label: tr(context, 'assets')),
+          if (orders)
+            NavigationDestination(icon: const Icon(Icons.assignment_outlined), label: tr(context, 'workOrders')),
           NavigationDestination(
             icon: Badge(
-              isLabelVisible: _controller.store!.operations().isNotEmpty || _controller.store!.photos().isNotEmpty,
+              isLabelVisible: _controller.store!.operations().isNotEmpty ||
+                  _controller.store!.photos().isNotEmpty ||
+                  _controller.store!.workOrderActions().isNotEmpty,
               child: const Icon(Icons.cloud_sync_outlined),
             ),
             label: tr(context, 'sync'),
