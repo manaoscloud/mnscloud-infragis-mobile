@@ -14,6 +14,8 @@ class SyncReport {
   int retried = 0;
   int photos = 0;
   int downloaded = 0;
+  int workOrderActions = 0;
+  int workOrderRejected = 0;
   bool revoked = false;
   bool unauthorized = false;
   String? error;
@@ -46,6 +48,7 @@ class SyncEngine {
     try {
       await _push(report);
       await _photos(report);
+      await _workOrders(report);
       await _pull(report);
       store.setMeta('lastSyncAt', _clock().toUtc().toIso8601String());
     } on ApiException catch (error) {
@@ -136,6 +139,58 @@ class SyncEngine {
         store.retryPhotoLater(photo.uuid, _now, error.message);
       }
     }
+  }
+
+  /// Work orders live in their own module: a tenant without it (402/403 on these routes) only loses
+  /// the work orders tab, never the local copy.
+  Future<void> _workOrders(SyncReport report) async {
+    try {
+      for (final action in store.workOrderActions(dueOnly: true, nowMs: _now)) {
+        try {
+          await api.sendWorkOrderAction(action.kind, action.orderUuid, action.body);
+          store.completeWorkOrderAction(action.uuid);
+          report.workOrderActions++;
+        } on ApiException catch (error) {
+          // 402: the module is missing (the tab goes away); a 403 permission refusal is one action.
+          if (error.unauthorized || error.status == 402) rethrow;
+          if (error.transient) {
+            store.retryWorkOrderActionLater(action.uuid, _now);
+          } else {
+            store.rejectWorkOrderAction(action.uuid, error.message);
+            report.workOrderRejected++;
+          }
+        }
+      }
+      final orders = await api.myWorkOrders();
+      for (final order in orders) {
+        order['materials'] = await api.workOrderMaterials('${order['WorUUID']}');
+      }
+      store.replaceWorkOrders(orders);
+      store.setMeta('workOrders', 'available');
+      await _stockCatalog();
+    } on ApiException catch (error) {
+      if (error.unauthorized) rethrow;
+      if (error.revoked) {
+        store.setMeta('workOrders', 'unavailable');
+        return;
+      }
+      if (!error.transient) rethrow;
+    }
+  }
+
+  /// Products and locations for the material picker, at most hourly; missing Stock access leaves
+  /// the picker empty.
+  Future<void> _stockCatalog() async {
+    final at = DateTime.tryParse(store.meta('stockCatalogAt') ?? '');
+    if (at != null && _clock().difference(at).inMinutes < 60) return;
+    try {
+      store.replaceCatalog({'products': await api.stockProducts(), 'locations': await api.stockLocations()});
+    } on ApiException catch (error) {
+      if (error.unauthorized) rethrow;
+      if (!error.revoked && !error.transient) rethrow;
+      if (error.revoked) store.replaceCatalog({'products': const [], 'locations': const []});
+    }
+    store.setMeta('stockCatalogAt', _clock().toUtc().toIso8601String());
   }
 
   Future<void> _pull(SyncReport report) async {

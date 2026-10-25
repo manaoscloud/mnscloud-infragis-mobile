@@ -134,6 +134,25 @@ class FieldController extends ChangeNotifier {
     unawaited(sync());
   }
 
+  bool get workOrdersAvailable => store?.meta('workOrders') == 'available';
+
+  /// Queues a work order action; the material line keeps the operation UUID as its identifier.
+  void workOrderAction(String kind, String orderUuid, Map<String, dynamic> body) {
+    final uuid = newUuid();
+    store!.queueWorkOrderAction(
+      operationUuid: uuid,
+      kind: kind,
+      orderUuid: orderUuid,
+      body: {
+        ...body,
+        if (kind == 'material') 'materialUUID': uuid else if (kind != 'issue') 'operationUUID': uuid,
+      },
+      now: DateTime.now(),
+    );
+    notifyListeners();
+    unawaited(sync());
+  }
+
   void resolve(String operationUuid, {required bool keepMine}) {
     keepMine ? store!.keepMine(operationUuid) : store!.discard(operationUuid);
     notifyListeners();

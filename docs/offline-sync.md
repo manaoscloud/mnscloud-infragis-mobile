@@ -20,10 +20,15 @@ Tables (`lib/src/data/local_store.dart`):
    `baseSyncAt`, the server version the edit started from.
 3. Photos: uploaded only when their asset has no queued create left; the client attachment UUID
    makes the retry idempotent.
-4. Pull: without a cursor, a full bootstrap (catalogs and assets; the previous server copies are
+4. Work orders (only with the Work orders module): queued actions go in order; status and note
+   carry `operationUUID`, a material carries its own `materialUUID`, so a retry is a no-op. A
+   refusal stays on the order until the user discards it. Then the assigned open orders and their
+   materials are replaced (queued actions re-applied on top) and the Stock products and locations
+   refresh at most hourly. A 402/403 on these routes only hides the tab; it never wipes the copy.
+5. Pull: without a cursor, a full bootstrap (catalogs and assets; the previous server copies are
    replaced once the server answers); with a cursor, the changes since it, deleted assets as
    tombstones. Catalogs refresh at most once an hour.
-5. Assets with queued writes keep the local version until the server accepts or the user resolves.
+6. Assets with queued writes keep the local version until the server accepts or the user resolves.
 
 The app syncs when it opens, after each local write and every two minutes.
 

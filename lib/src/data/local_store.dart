@@ -41,6 +41,26 @@ class QueuedOperation {
       };
 }
 
+class WorkOrderAction {
+  const WorkOrderAction({
+    required this.seq,
+    required this.uuid,
+    required this.kind,
+    required this.orderUuid,
+    required this.body,
+    required this.status,
+    this.error,
+  });
+
+  final int seq;
+  final String uuid;
+  final String kind;
+  final String orderUuid;
+  final Map<String, dynamic> body;
+  final String status;
+  final String? error;
+}
+
 class QueuedAttachment {
   const QueuedAttachment({
     required this.seq,
@@ -77,7 +97,7 @@ class QueuedAttachment {
 class LocalStore {
   LocalStore._(this._db);
 
-  static const schemaVersion = 1;
+  static const schemaVersion = 2;
   final Database _db;
 
   /// Opens (or creates) the store at [path] with [key]; `:memory:` for tests.
@@ -130,9 +150,116 @@ class LocalStore {
           latitude REAL, longitude REAL, captured_at TEXT, attempts INTEGER NOT NULL DEFAULT 0,
           next_attempt_at INTEGER NOT NULL DEFAULT 0, error TEXT, created_at TEXT NOT NULL) STRICT;
       ''');
+      // v2: work orders assigned to the user and their queued field actions.
+      _db.execute('''
+        CREATE TABLE IF NOT EXISTS work_order (uuid TEXT PRIMARY KEY, item TEXT NOT NULL) STRICT;
+        CREATE TABLE IF NOT EXISTS wo_outbox (
+          seq INTEGER PRIMARY KEY AUTOINCREMENT, uuid TEXT NOT NULL UNIQUE, kind TEXT NOT NULL,
+          order_uuid TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+          attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at INTEGER NOT NULL DEFAULT 0, error TEXT,
+          created_at TEXT NOT NULL) STRICT;
+      ''');
       _db.execute('PRAGMA user_version = $schemaVersion');
     });
   }
+
+  /// Work orders assigned to the user as the server answered (materials embedded per order).
+  void replaceWorkOrders(List<Map<String, dynamic>> orders) {
+    _transaction(() {
+      _db.execute('DELETE FROM work_order');
+      for (final order in orders) {
+        final uuid = normalizeUuid('${order['WorUUID'] ?? ''}');
+        if (uuid.isEmpty) continue;
+        _db.execute('INSERT OR REPLACE INTO work_order (uuid, item) VALUES (?, ?)', [uuid, jsonEncode(order)]);
+      }
+      // Queued actions still show on top of the server copy.
+      for (final action in workOrderActions()) {
+        _applyLocal(action.orderUuid, action.kind, action.body);
+      }
+    });
+  }
+
+  List<Map<String, dynamic>> workOrders() => _db
+      .select('SELECT item FROM work_order')
+      .map((row) => jsonDecode(row['item'] as String) as Map<String, dynamic>)
+      .toList();
+
+  Map<String, dynamic>? workOrder(String uuid) {
+    final rows = _db.select('SELECT item FROM work_order WHERE uuid = ?', [normalizeUuid(uuid)]);
+    return rows.isEmpty ? null : jsonDecode(rows.first['item'] as String) as Map<String, dynamic>;
+  }
+
+  /// Field action on a work order (status, note, material, issue): applied to the local copy now and
+  /// sent on the next sync with its operation UUID (a retry answers the stored state).
+  void queueWorkOrderAction({
+    required String operationUuid,
+    required String kind,
+    required String orderUuid,
+    required Map<String, dynamic> body,
+    required DateTime now,
+  }) {
+    _transaction(() {
+      _db.execute(
+        'INSERT INTO wo_outbox (uuid, kind, order_uuid, body, created_at) VALUES (?, ?, ?, ?, ?)',
+        [operationUuid, kind, normalizeUuid(orderUuid), jsonEncode(body), now.toUtc().toIso8601String()],
+      );
+      _applyLocal(normalizeUuid(orderUuid), kind, body);
+    });
+  }
+
+  void _applyLocal(String orderUuid, String kind, Map<String, dynamic> body) {
+    final order = workOrder(orderUuid);
+    if (order == null) return;
+    if (kind == 'status') {
+      order['WorStatus'] = body['status'];
+      if (body['status'] == 'DONE') order['WorResolution'] = body['note'];
+    } else if (kind == 'material') {
+      final materials = [...(order['materials'] is List ? order['materials'] as List : const [])];
+      if (!materials.any((m) => m is Map && normalizeUuid('${m['WomUUID']}') == normalizeUuid('${body['materialUUID']}'))) {
+        materials.add({
+          'WomUUID': body['materialUUID'],
+          'ProductName': body['productName'],
+          'LocationName': body['locationName'],
+          'WomQuantity': body['quantity'],
+          'WomStatus': 'PLANNED',
+          'pending': true,
+        });
+      }
+      order['materials'] = materials;
+    }
+    order['pending'] = true;
+    _db.execute('UPDATE work_order SET item = ? WHERE uuid = ?', [jsonEncode(order), orderUuid]);
+  }
+
+  List<WorkOrderAction> workOrderActions({bool dueOnly = false, int? nowMs}) => (dueOnly
+          ? _db.select(
+              "SELECT * FROM wo_outbox WHERE status = 'pending' AND next_attempt_at <= ? ORDER BY seq",
+              [nowMs ?? 0],
+            )
+          : _db.select('SELECT * FROM wo_outbox ORDER BY seq'))
+      .map((row) => WorkOrderAction(
+            seq: row['seq'] as int,
+            uuid: row['uuid'] as String,
+            kind: row['kind'] as String,
+            orderUuid: row['order_uuid'] as String,
+            body: jsonDecode(row['body'] as String) as Map<String, dynamic>,
+            status: row['status'] as String,
+            error: row['error'] as String?,
+          ))
+      .toList();
+
+  void completeWorkOrderAction(String uuid) => _db.execute('DELETE FROM wo_outbox WHERE uuid = ?', [uuid]);
+
+  void rejectWorkOrderAction(String uuid, String error) =>
+      _db.execute("UPDATE wo_outbox SET status = 'rejected', error = ? WHERE uuid = ?", [error, uuid]);
+
+  void retryWorkOrderActionLater(String uuid, int nowMs) => _db.execute(
+        'UPDATE wo_outbox SET attempts = attempts + 1, '
+        'next_attempt_at = ? + min(900000, 5000 * (1 << min(attempts, 8))) WHERE uuid = ?',
+        [nowMs, uuid],
+      );
+
+  void discardWorkOrderAction(String uuid) => completeWorkOrderAction(uuid);
 
   T _transaction<T>(T Function() run) {
     _db.execute('BEGIN IMMEDIATE');
@@ -167,6 +294,8 @@ class LocalStore {
   /// Replaces the catalogs (projects, layers, categories, asset types, statuses).
   void replaceCatalog(Map<String, List<Map<String, dynamic>>> catalog) {
     const uuidKeys = {
+      'products': 'SprUUID',
+      'locations': 'StlUUID',
       'projects': 'IprUUID',
       'layers': 'IglUUID',
       'categories': 'IacUUID',
@@ -458,7 +587,7 @@ class LocalStore {
   /// Remote wipe: everything of this tenant leaves the device (the API revoked the access).
   void wipe() {
     _transaction(() {
-      for (final table in ['meta', 'catalog', 'asset', 'outbox', 'photo_outbox']) {
+      for (final table in ['meta', 'catalog', 'asset', 'outbox', 'photo_outbox', 'work_order', 'wo_outbox']) {
         _db.execute('DELETE FROM $table');
       }
     });
