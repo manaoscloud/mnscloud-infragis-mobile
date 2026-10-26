@@ -15,7 +15,7 @@ Use this repository for the MNSCloud InfraGIS Flutter mobile field client.
 - Use SQLite as the canonical offline database.
 - Keep business rules, billing, authorization, storage path ownership, signed URL generation, sync
   acceptance, and conflict decisions in DB/API.
-- Follow `/opt/mnscloud/docs/infragis.md` for the canonical product contract.
+- Follow the repository `docs/` contracts; maintainers also follow the workspace `docs/infragis.md`.
 
 ## Validation
 

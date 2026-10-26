@@ -33,11 +33,11 @@ Project capsule for AI agents working in `mnscloud-infragis-mobile`.
 
 ## Canonical References
 
-- Workspace contract: `/opt/mnscloud/docs/infragis.md`
-- Public clients: `/opt/mnscloud/docs/public-api-clients.md`
-- Storage contract: `/opt/mnscloud/docs/storage-file-contract.md`
+- Repository contracts: `docs/api-contract.md`, `docs/offline-sync.md`, `docs/security.md`.
+- Maintainers only (MNSCloud workspace, not reachable by external contributors):
+  `docs/infragis.md`, `docs/public-api-clients.md`, `docs/storage-file-contract.md`.
 
-## Expected Future Validation
+## Validation (required, mirrors `.github/workflows/flutter.yml`)
 
 ```bash
 flutter pub get

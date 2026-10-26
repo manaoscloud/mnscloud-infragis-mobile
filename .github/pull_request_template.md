@@ -32,7 +32,7 @@ text.es: <...>
 ## Validation
 
 - [ ] `git diff --check`
-- [ ] Flutter validation, when scaffold is available
+- [ ] `flutter pub get`, `flutter analyze` and `flutter test` pass
 
 ## Public Client Boundary
 
