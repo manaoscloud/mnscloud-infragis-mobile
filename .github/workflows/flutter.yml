@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
 
+
+# Read-only token: analysis, tests and builds publish nothing.
+permissions:
+  contents: read
+
 jobs:
   analyze-test:
     runs-on: ubuntu-latest
