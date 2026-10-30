@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
 
+
+# Read-only token: analysis, tests and builds publish nothing.
+permissions:
+  contents: read
+
 jobs:
   analyze-test:
     runs-on: ubuntu-latest
@@ -13,7 +18,7 @@ jobs:
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
-      - run: flutter pub get
+      - run: flutter pub get --enforce-lockfile
       - run: flutter analyze
       - run: flutter test
       - name: No real platform domains in the public client
@@ -22,3 +27,25 @@ jobs:
             echo "Use placeholders instead of platform domains (docs/public-api-clients.md)."
             exit 1
           fi
+
+  sonarcloud:
+    # SonarQube Cloud CI analysis (Dart is not covered by automatic analysis); shared and pinned in
+    # mnscloud-runtime-kit. Skipped with a notice while SONAR_TOKEN is not available.
+    uses: manaoscloud/mnscloud-runtime-kit/.github/workflows/sonarcloud-dart.yml@main
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  build-android:
+    # Compiles the Android app (debug, no signing) so manifest and resource changes are proven.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter build apk --debug
