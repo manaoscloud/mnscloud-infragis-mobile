@@ -5,6 +5,27 @@ const _texts = <String, List<String>>{
   // key: [pt-BR, en, es]
   'apiUrl': ['Endereço da API', 'API address', 'Dirección de la API'],
   'close': ['Fechar', 'Close', 'Cerrar'],
+  // Access screen; Settings › Themes › Login do InfraGIS may replace the first six per language.
+  'accessEyebrow': ['Acesso de campo', 'Field access', 'Acceso de campo'],
+  'accessTitle': ['Entre no InfraGIS', 'Sign in to InfraGIS', 'Entra en InfraGIS'],
+  'accessSubtitle': [
+    'Use o e-mail e a senha da sua conta MNSCloud.',
+    'Use the e-mail and password of your MNSCloud account.',
+    'Usa el correo y la contraseña de tu cuenta MNSCloud.',
+  ],
+  'accessHeroTitle': ['Sua rede.\nEm campo.', 'Your network.\nIn the field.', 'Tu red.\nEn campo.'],
+  'accessHeroText': [
+    'Cadastre ativos, fotos e ordens de serviço, também sem conexão.',
+    'Register assets, photos and work orders, also offline.',
+    'Registra activos, fotos y órdenes de servicio, también sin conexión.',
+  ],
+  'accessSupportLabel': ['Precisa de acesso? Fale com sua empresa.', 'Need access? Contact your company.', '¿Necesitas acceso? Habla con tu empresa.'],
+  'language': ['Idioma', 'Language', 'Idioma'],
+  'systemLanguage': ['Idioma do sistema', 'System language', 'Idioma del sistema'],
+  'linkError': ['Não foi possível abrir o link.', 'The link could not be opened.', 'No se pudo abrir el enlace.'],
+  'privacy': ['Privacidade', 'Privacy', 'Privacidad'],
+  'forgotPassword': ['Esqueceu sua senha?', 'Forgot your password?', '¿Olvidaste tu contraseña?'],
+  'terms': ['Termos de uso', 'Terms of use', 'Términos de uso'],
   'updateAvailable': ['Nova versão disponível', 'New version available', 'Nueva versión disponible'],
   'updateImportant': ['Atualização importante', 'Important update', 'Actualización importante'],
   'updateHelp': [
@@ -113,3 +134,10 @@ String tr(BuildContext context, String key) {
   final index = switch (language) { 'en' => 1, 'es' => 2, _ => 0 };
   return _texts[key]?[index] ?? key;
 }
+
+/// Language tag of the Themes login copy (`pt-BR`, `en-US`, `es-ES`) for [context].
+String themeLocale(BuildContext context) => switch (Localizations.maybeLocaleOf(context)?.languageCode) {
+      'en' => 'en-US',
+      'es' => 'es-ES',
+      _ => 'pt-BR',
+    };
