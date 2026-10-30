@@ -1,8 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show Locale;
+import 'package:http/http.dart' as http;
 
 import 'api/infragis_api.dart';
+import 'api/web_api_base.dart';
+import 'brand/brand.dart';
+import 'brand/brand_dom.dart';
 import 'core/ids.dart';
 import 'data/local_store.dart';
 import 'data/session_vault.dart';
@@ -22,6 +28,32 @@ class FieldController extends ChangeNotifier {
   String? notice;
   Timer? _timer;
 
+  /// Brand of the domain (Settings › Themes › InfraGIS), shared by the login and the app theme.
+  final brand = ValueNotifier<Brand?>(null);
+
+  /// Language chosen on the login screen; null follows the device.
+  final locale = ValueNotifier<Locale?>(null);
+
+  /// Loads the brand of the platform that serves the app (web: same origin; native: the last API
+  /// address used). Without a reachable theme the MNSCloud defaults stay.
+  Future<void> loadBrand([String? baseUrl]) async {
+    final base = baseUrl ?? (kIsWeb ? webApiBaseUrl() : await vault.lastBaseUrl());
+    if (base == null || base.trim().isEmpty) return;
+    try {
+      final root = base.trim().replaceAll(RegExp(r'/+$'), '');
+      final response = await http
+          .get(Uri.parse('$root/public/theme/context?app=infragis'))
+          .timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200) return;
+      final body = jsonDecode(response.body);
+      final value = Brand.fromContext(body is Map ? body['data'] : null);
+      brand.value = value;
+      if (value?.faviconUrl case final url?) applyFavicon(url);
+    } catch (_) {
+      // Keeps the MNSCloud defaults.
+    }
+  }
+
   bool get signedIn => session != null && store != null;
 
   /// Restores the previous session (the token stays valid until the API says otherwise).
@@ -33,6 +65,7 @@ class FieldController extends ChangeNotifier {
   Future<void> signIn(FieldSession value) async {
     await vault.save(value);
     await _open(value);
+    unawaited(loadBrand(value.baseUrl));
   }
 
   Future<void> _open(FieldSession value) async {

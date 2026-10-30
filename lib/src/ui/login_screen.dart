@@ -2,9 +2,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../api/infragis_api.dart';
+import '../api/web_api_base.dart';
 import '../data/session_vault.dart';
 import '../field_controller.dart';
-import '../pwa/install_app_button.dart';
+import 'access_shell.dart';
 import 'strings.dart';
 
 /// Platform login (the MNSCloud API account) and tenant choice. No separate field credentials.
@@ -96,27 +97,22 @@ class _LoginScreenState extends State<LoginScreen> {
     final notice = widget.controller.notice;
     String? required(String? value) =>
         value == null || value.trim().isEmpty ? tr(context, 'required') : null;
+    final brand = widget.controller.brand.value;
+    // Same themed access screen as POS, Pulse and PhoneWeb (Settings › Themes › Login do InfraGIS).
     return Scaffold(
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Form(
+        child: AccessShell(
+          controller: widget.controller,
+          child: Form(
                 key: _formKey,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Align(alignment: AlignmentDirectional.centerEnd, child: InstallAppButton(labeled: true)),
-                    const Icon(Icons.public_rounded, size: 56),
-                    const SizedBox(height: 12),
-                    Text(
-                      'MNSCloud InfraGIS',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.headlineSmall,
+                    AccessHeading(
+                      eyebrow: accessText(context, brand, 'eyebrow'),
+                      title: accessText(context, brand, 'title'),
+                      subtitle: accessText(context, brand, 'subtitle'),
                     ),
-                    const SizedBox(height: 24),
                     if (notice != null)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 16),
@@ -156,7 +152,18 @@ class _LoginScreenState extends State<LoginScreen> {
                       validator: required,
                       onFieldSubmitted: (_) => _submit(),
                     ),
-                    const SizedBox(height: 20),
+                    // Same platform account as the App: recovery is the App page of the domain (web).
+                    if (kIsWeb)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          key: const Key('forgotPassword'),
+                          onPressed: () => openAccessLink(context, Uri.base.resolve('/auth/forgot-password').toString()),
+                          child: Text(tr(context, 'forgotPassword')),
+                        ),
+                      )
+                    else
+                      const SizedBox(height: 20),
                     if (_error != null)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 12),
@@ -171,13 +178,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   ],
                 ),
               ),
-            ),
-          ),
         ),
       ),
     );
   }
 }
-
-/// API of the web app: `/api/v1` of the origin that serves it (the edge routes both).
-String webApiBaseUrl() => '${Uri.base.origin}/api/v1';
