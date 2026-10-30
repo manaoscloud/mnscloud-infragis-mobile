@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mnscloud_infragis_mobile/src/data/local_store.dart';
@@ -103,12 +104,15 @@ void main() {
     );
     expect(store.assets().single['local'], isTrue);
     expect(store.operations().single.baseSyncAt, isNull);
-    store.queuePhoto(uuid: 'photo-1', assetUuid: asset, path: '/tmp/x.jpg', fileName: 'x.jpg', kind: 'PHOTO', now: DateTime.utc(2026));
+    store.queuePhoto(
+        uuid: 'photo-1', assetUuid: asset, bytes: Uint8List.fromList([1, 2, 3]), fileName: 'x.jpg', kind: 'PHOTO', now: DateTime.utc(2026));
+    expect(store.photoBytes('photo-1'), [1, 2, 3], reason: 'the photo bytes live in the encrypted store');
     expect(store.duePhotos(0), isEmpty, reason: 'the asset does not exist on the server yet');
     store.markOperation('op-create', QueueStatus.rejected, error: 'name: Asset name is required');
     store.discard('op-create');
     expect(store.assets(), isEmpty);
     expect(store.photos(), isEmpty);
+    expect(store.photoBytes('photo-1'), isNull, reason: 'discarding the create drops its photos too');
     store.close();
   });
 

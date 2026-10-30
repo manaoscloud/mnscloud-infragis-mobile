@@ -1,11 +1,13 @@
 import 'dart:convert';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:maplibre_gl/maplibre_gl.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map_vector_tiles/flutter_map_vector_tiles.dart' as vt;
+import 'package:latlong2/latlong.dart';
 
 import '../data/local_store.dart';
 import '../field_controller.dart';
+import '../pwa/install_app_button.dart';
 import 'asset_form.dart';
 import 'strings.dart';
 import 'work_orders.dart';
@@ -68,6 +70,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ? const SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.sync),
           ),
+          const InstallAppButton(),
           IconButton(tooltip: tr(context, 'signOut'), onPressed: _controller.signOut, icon: const Icon(Icons.logout)),
         ],
       ),
@@ -142,8 +145,10 @@ Map<String, dynamic>? _geometry(Map<String, dynamic> asset) {
   };
 }
 
-/// MapLibre map with the platform base map (style URL from `/infragis/map/config`) and the local
-/// assets; pending ones are orange until the server accepts them.
+/// Field map on every platform (flutter_map + MapLibre-style vector tiles): the platform base map
+/// from `/infragis/map/config` and the local assets on top; pending ones are orange until the
+/// server accepts them. Same providers as the App (`style` URL, own `pmtiles` archive with the
+/// Protomaps light flavor, `none`); Mapbox is refused. Without a base map the assets still show.
 class FieldMapView extends StatefulWidget {
   const FieldMapView({super.key, required this.controller, required this.onOpen});
 
@@ -155,94 +160,180 @@ class FieldMapView extends StatefulWidget {
 }
 
 class _FieldMapViewState extends State<FieldMapView> {
-  static const _fallbackStyle = 'https://tiles.openfreemap.org/styles/liberty';
-  MapLibreMapController? _map;
+  static const _protomapsStyle = 'asset://assets/map/protomaps-light.json';
+  final _hits = LayerHitNotifier<String>(null);
   Map<String, dynamic>? _config;
-  bool _ready = false;
+  vt.Style? _style;
+  LatLng? _me;
 
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(_refresh);
-    widget.controller.api?.mapConfig().then((value) {
-      if (mounted) setState(() => _config = value);
-    }).catchError((_) {
-      if (mounted) setState(() => _config = const {});
+    _hits.addListener(_tapped);
+    widget.controller.api?.mapConfig().then(_loaded).catchError((_) => _loaded(const {}));
+    currentPosition().then((position) {
+      if (mounted && position != null) setState(() => _me = LatLng(position.latitude, position.longitude));
     });
   }
 
   @override
   void dispose() {
     widget.controller.removeListener(_refresh);
+    _hits.dispose();
+    _style?.dispose();
     super.dispose();
   }
 
-  String get _style {
-    final config = _config ?? const {};
-    final provider = '${config['provider'] ?? 'style'}';
-    if (provider == 'pmtiles' && '${config['pmtilesUrl'] ?? ''}'.startsWith('https://')) {
-      return 'pmtiles://${config['pmtilesUrl']}';
+  void _refresh() {
+    if (mounted) setState(() {});
+  }
+
+  void _tapped() {
+    final uuid = _hits.value?.hitValues.firstOrNull;
+    if (uuid != null) widget.onOpen(uuid);
+  }
+
+  Future<void> _loaded(Map<String, dynamic> config) async {
+    if (!mounted) return;
+    setState(() => _config = config);
+    final style = await _readStyle(config);
+    if (!mounted) {
+      style?.dispose();
+      return;
     }
-    final url = '${config['styleUrl'] ?? ''}';
-    return url.startsWith('https://') && provider != 'mapbox' ? url : _fallbackStyle;
+    setState(() => _style = style);
   }
 
-  Future<void> _refresh() async {
-    final map = _map;
-    final store = widget.controller.store;
-    if (!_ready || map == null || store == null) return;
-    await map.setGeoJsonSource('assets', assetFeatures(store.assets()));
-  }
-
-  Future<void> _styleLoaded() async {
-    final map = _map!;
-    final store = widget.controller.store!;
-    await map.addGeoJsonSource('assets', assetFeatures(store.assets()));
-    await map.addLineLayer('assets', 'assets-lines', const LineLayerProperties(lineColor: '#21D4D4', lineWidth: 3));
-    await map.addCircleLayer(
-      'assets',
-      'assets-points',
-      const CircleLayerProperties(
-        circleRadius: 7,
-        circleColor: [
-          'case',
-          ['==', ['get', 'pending'], true],
-          '#F59E0B',
-          '#22C55E',
-        ],
-        circleStrokeColor: '#071111',
-        circleStrokeWidth: 2,
-      ),
-      filter: ['==', ['geometry-type'], 'Point'],
-    );
-    map.onFeatureTapped.add((Point<double> _, LatLng _, String id, String layerId, Annotation? _) {
-      if (layerId.startsWith('assets')) widget.onOpen(id);
-    });
-    _ready = true;
+  Future<vt.Style?> _readStyle(Map<String, dynamic> config) async {
+    final provider = '${config['provider'] ?? 'style'}';
+    final pmtiles = '${config['pmtilesUrl'] ?? ''}';
+    final styleUrl = '${config['styleUrl'] ?? ''}';
+    try {
+      if (provider == 'pmtiles' && pmtiles.startsWith('https://')) {
+        return await vt.StyleReader(
+          uri: _protomapsStyle,
+          language: 'pt',
+          resolveProvider: (id) async => id == 'protomaps' ? vt.PmTilesVectorTileProvider.open(pmtiles) : null,
+        ).read();
+      }
+      if (provider == 'style' && styleUrl.startsWith('https://')) {
+        return await vt.StyleReader(uri: styleUrl, language: 'pt').read();
+      }
+    } catch (_) {
+      // No base map (offline before the first load, or an unreachable style): assets only.
+    }
+    return null;
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_config == null) return const Center(child: CircularProgressIndicator());
-    final latitude = double.tryParse('${_config!['centerLatitude'] ?? ''}') ?? -14.235;
-    final longitude = double.tryParse('${_config!['centerLongitude'] ?? ''}') ?? -51.9253;
-    final zoom = double.tryParse('${_config!['zoom'] ?? ''}') ?? 3.5;
-    final first = widget.controller.store?.assets().map(_geometry).whereType<Map<String, dynamic>>().where((g) => g['type'] == 'Point').firstOrNull;
-    final coordinates = first?['coordinates'] as List?;
-    return MapLibreMap(
-      styleString: _style,
-      myLocationEnabled: true,
-      initialCameraPosition: CameraPosition(
-        target: coordinates == null
-            ? LatLng(latitude, longitude)
-            : LatLng((coordinates[1] as num).toDouble(), (coordinates[0] as num).toDouble()),
-        zoom: coordinates == null ? zoom : 15,
+    final config = _config;
+    if (config == null) return const Center(child: CircularProgressIndicator());
+    final store = widget.controller.store;
+    final assets = store?.assets() ?? const <Map<String, dynamic>>[];
+    final points = <Marker>[];
+    final lines = <Polyline<String>>[];
+    for (final asset in assets) {
+      final geometry = _geometry(asset);
+      if (geometry == null) continue;
+      final uuid = '${asset['IgaUUID']}';
+      final color = asset['pending'] == true ? const Color(0xFFF59E0B) : const Color(0xFF22C55E);
+      switch (geometry['type']) {
+        case 'Point':
+          final position = _latLng(geometry['coordinates']);
+          if (position == null) continue;
+          points.add(Marker(
+            point: position,
+            width: 18,
+            height: 18,
+            child: GestureDetector(
+              onTap: () => widget.onOpen(uuid),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: color,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFF071111), width: 2),
+                ),
+              ),
+            ),
+          ));
+        case 'LineString':
+          lines.add(_line(geometry['coordinates'], uuid));
+        case 'MultiLineString' || 'Polygon':
+          for (final part in geometry['coordinates'] as List? ?? const []) {
+            lines.add(_line(part, uuid));
+          }
+        case 'MultiPolygon':
+          for (final polygon in geometry['coordinates'] as List? ?? const []) {
+            for (final ring in polygon as List? ?? const []) {
+              lines.add(_line(ring, uuid));
+            }
+          }
+      }
+    }
+    final style = _style;
+    final latitude = double.tryParse('${config['centerLatitude'] ?? ''}') ?? -14.235;
+    final longitude = double.tryParse('${config['centerLongitude'] ?? ''}') ?? -51.9253;
+    final zoom = double.tryParse('${config['zoom'] ?? ''}') ?? 3.5;
+    final first = points.firstOrNull?.point;
+    final attribution = [
+      ...?style?.attributions.map((item) => item.text),
+      if ('${config['attribution'] ?? ''}'.isNotEmpty) '${config['attribution']}',
+    ].join(' · ');
+    return FlutterMap(
+      options: MapOptions(
+        initialCenter: first ?? LatLng(latitude, longitude),
+        initialZoom: first == null ? zoom : 15,
+        maxZoom: 21,
+        backgroundColor: const Color(0xFFEEF1F4),
       ),
-      onMapCreated: (map) => _map = map,
-      onStyleLoadedCallback: _styleLoaded,
-      attributionButtonMargins: const Point(8, 8),
+      children: [
+        if (style != null)
+          vt.VectorTileLayer(
+            theme: style.theme,
+            tileProviders: style.providers,
+            rasterSources: style.rasterSources,
+            sprites: style.sprites,
+          ),
+        PolylineLayer<String>(polylines: lines, hitNotifier: _hits),
+        MarkerLayer(markers: points),
+        if (_me case final me?)
+          MarkerLayer(markers: [
+            Marker(
+              point: me,
+              width: 16,
+              height: 16,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2563EB),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 2),
+                ),
+              ),
+            ),
+          ]),
+        if (attribution.isNotEmpty) SimpleAttributionWidget(source: Text(attribution)),
+      ],
     );
   }
+
+  Polyline<String> _line(Object? coordinates, String uuid) => Polyline<String>(
+        points: [
+          for (final point in coordinates as List? ?? const []) ?_latLng(point),
+        ],
+        color: const Color(0xFF21D4D4),
+        strokeWidth: 3,
+        hitValue: uuid,
+      );
+}
+
+LatLng? _latLng(Object? coordinates) {
+  if (coordinates is! List || coordinates.length < 2) return null;
+  final longitude = coordinates[0];
+  final latitude = coordinates[1];
+  if (longitude is! num || latitude is! num) return null;
+  return LatLng(latitude.toDouble(), longitude.toDouble());
 }
 
 /// Offline asset list with search; a cloud mark shows changes not sent yet.

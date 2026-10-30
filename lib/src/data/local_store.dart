@@ -1,7 +1,9 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 
-import 'package:sqlite3/sqlite3.dart';
+import 'package:sqlite3/common.dart';
+
+import 'sqlite_open.dart';
 
 /// Status of a queued write: waiting to be sent, stopped by a server conflict, or refused.
 enum QueueStatus { pending, conflict, rejected }
@@ -91,25 +93,30 @@ class QueuedAttachment {
   final String? error;
 }
 
-/// The offline copy of one tenant: catalogs, assets, the write queue and the photo queue, in one
-/// SQLite database encrypted with SQLite3MultipleCiphers (`PRAGMA key`). The key and the session
-/// token live in secure storage, never in this file.
+/// The offline copy of one tenant: catalogs, assets, the write queue, the photo queue and the
+/// photos themselves, in one SQLite database encrypted with SQLite3MultipleCiphers (`PRAGMA key`):
+/// native files on Android, iOS and desktop, IndexedDB through `sqlite3mc.wasm` on the web. The key
+/// and the session token live in secure storage, never in this database.
 class LocalStore {
   LocalStore._(this._db);
 
-  static const schemaVersion = 2;
-  final Database _db;
+  static const schemaVersion = 3;
+  final CommonDatabase _db;
 
-  /// Opens (or creates) the store at [path] with [key]; `:memory:` for tests.
-  static LocalStore open(String path, {required String key}) {
-    final db = sqlite3.open(path);
+  /// Opens (or creates) the store at [path] with [key] on native platforms; `:memory:` for tests.
+  static LocalStore open(String path, {required String key}) =>
+      fromDatabase(openNativeDatabase(path), key: path == ':memory:' ? '' : key);
+
+  /// Store over an opened database: applies the key, the journal mode and the schema. The web has
+  /// no write-ahead log (its virtual file system writes whole pages to IndexedDB).
+  static LocalStore fromDatabase(CommonDatabase db, {required String key, bool writeAheadLog = true}) {
     // An in-memory database (tests) never touches the disk and takes no key.
-    if (key.isNotEmpty && path != ':memory:') {
+    if (key.isNotEmpty) {
       db.execute("PRAGMA key = '${key.replaceAll("'", "''")}'");
     }
     // A wrong key fails here, on the first read of the encrypted pages.
     db.select('SELECT count(*) FROM sqlite_master');
-    db.execute('PRAGMA journal_mode = WAL');
+    if (writeAheadLog) db.execute('PRAGMA journal_mode = WAL');
     db.execute('PRAGMA synchronous = FULL');
     final store = LocalStore._(db);
     store._migrate();
@@ -159,6 +166,8 @@ class LocalStore {
           attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at INTEGER NOT NULL DEFAULT 0, error TEXT,
           created_at TEXT NOT NULL) STRICT;
       ''');
+      // v3: the photos live in the encrypted database (no loose files; works on the web).
+      _db.execute('CREATE TABLE IF NOT EXISTS photo_blob (uuid TEXT PRIMARY KEY, bytes BLOB NOT NULL) STRICT;');
       _db.execute('PRAGMA user_version = $schemaVersion');
     });
   }
@@ -507,6 +516,7 @@ class LocalStore {
       final assetUuid = rows.first['asset_uuid'] as String;
       _db.execute('DELETE FROM outbox WHERE uuid = ?', [operationUuid]);
       if (rows.first['kind'] == 'asset.create') {
+        _db.execute('DELETE FROM photo_blob WHERE uuid IN (SELECT uuid FROM photo_outbox WHERE asset_uuid = ?)', [assetUuid]);
         _db.execute('DELETE FROM photo_outbox WHERE asset_uuid = ?', [assetUuid]);
       }
       if (_hasPending(assetUuid)) return;
@@ -526,10 +536,11 @@ class LocalStore {
     });
   }
 
+  /// Queues a photo for upload, storing its bytes in the encrypted database in the same transaction.
   void queuePhoto({
     required String uuid,
     required String assetUuid,
-    required String path,
+    required Uint8List bytes,
     required String fileName,
     required String kind,
     required DateTime now,
@@ -538,13 +549,15 @@ class LocalStore {
     double? longitude,
     DateTime? capturedAt,
   }) {
-    _db.execute(
+    _transaction(() {
+      _db.execute('INSERT OR REPLACE INTO photo_blob (uuid, bytes) VALUES (?, ?)', [uuid, bytes]);
+      _db.execute(
       'INSERT INTO photo_outbox (uuid, asset_uuid, path, file_name, kind, caption, latitude, longitude, '
       'captured_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         uuid,
         normalizeUuid(assetUuid),
-        path,
+        'db:$uuid',
         fileName,
         kind,
         caption,
@@ -553,7 +566,14 @@ class LocalStore {
         capturedAt?.toUtc().toIso8601String(),
         now.toUtc().toIso8601String(),
       ],
-    );
+      );
+    });
+  }
+
+  /// Bytes of a queued photo (null when it was already sent or wiped).
+  Uint8List? photoBytes(String uuid) {
+    final rows = _db.select('SELECT bytes FROM photo_blob WHERE uuid = ?', [uuid]);
+    return rows.isEmpty ? null : rows.first['bytes'] as Uint8List;
   }
 
   /// Photos whose asset already exists on the server (no queued create left).
@@ -584,7 +604,10 @@ class LocalStore {
         error: row['error'] as String?,
       );
 
-  void completePhoto(String uuid) => _db.execute('DELETE FROM photo_outbox WHERE uuid = ?', [uuid]);
+  void completePhoto(String uuid) => _transaction(() {
+        _db.execute('DELETE FROM photo_outbox WHERE uuid = ?', [uuid]);
+        _db.execute('DELETE FROM photo_blob WHERE uuid = ?', [uuid]);
+      });
 
   void retryPhotoLater(String uuid, int nowMs, String error) => _db.execute(
         'UPDATE photo_outbox SET attempts = attempts + 1, error = ?, '
@@ -595,21 +618,10 @@ class LocalStore {
   /// Remote wipe: everything of this tenant leaves the device (the API revoked the access).
   void wipe() {
     _transaction(() {
-      for (final table in ['meta', 'catalog', 'asset', 'outbox', 'photo_outbox', 'work_order', 'wo_outbox']) {
+      for (final table in ['meta', 'catalog', 'asset', 'outbox', 'photo_outbox', 'photo_blob', 'work_order', 'wo_outbox']) {
         _db.execute('DELETE FROM $table');
       }
     });
-  }
-
-  /// Photo files written by the app for this store (deleted by a wipe).
-  static void deleteFiles(Iterable<String> paths) {
-    for (final path in paths) {
-      try {
-        File(path).deleteSync();
-      } catch (_) {
-        // Already gone.
-      }
-    }
   }
 }
 

@@ -4,6 +4,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'src/field_controller.dart';
 import 'src/ui/home_screen.dart';
 import 'src/ui/login_screen.dart';
+import 'src/version/app_update_overlay.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,6 +30,12 @@ class MnsCloudInfraGisMobileApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF21D4D4), brightness: Brightness.dark),
         scaffoldBackgroundColor: const Color(0xFF071111),
         useMaterial3: true,
+      ),
+      // Web only: a newer release shows a notice; "Update now" activates the new PWA revision.
+      builder: (context, child) => AppUpdateOverlay(
+        busy: () => controller.syncing,
+        listenable: controller,
+        child: child ?? const SizedBox.shrink(),
       ),
       home: ListenableBuilder(
         listenable: controller,

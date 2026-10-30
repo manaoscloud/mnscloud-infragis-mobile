@@ -15,9 +15,14 @@ database.
 Implemented scope:
 
 - MNSCloud API login and tenant environment selection (token in platform secure storage)
-- encrypted SQLite copy per tenant (SQLite3MultipleCiphers, key in secure storage)
+- encrypted SQLite copy per tenant (SQLite3MultipleCiphers, key in secure storage): a native file
+  on Android, iOS and desktop, IndexedDB through `web/sqlite3mc.wasm` on the web; photos are
+  stored as blobs inside it until they are sent
 - bootstrap download of catalogs and assets, then incremental changes with tombstones
-- map (MapLibre with the platform base map) and offline asset list
+- map (flutter_map + `flutter_map_vector_tiles`, one engine on every platform) with the platform
+  base map: a MapLibre style URL or the own PMTiles archive rendered with the Protomaps light
+  flavor (`assets/map/protomaps-light.json`, like the App); visited areas stay cached on native
+  platforms; offline asset list
 - point asset create/update/delete queue with GPS capture and asset type properties
 - photos with GPS and capture time, uploaded once the asset exists on the server
 - conflict and refusal presentation based on API decisions (keep mine / take the server)
@@ -44,13 +49,12 @@ Out of scope:
 
 ## Target Platforms
 
-Planned Flutter targets:
+Built in CI on every pull request (web, Android, Linux, Windows) and weekly (macOS, iOS):
 
-- Android
-- iOS
-- Windows
-- Linux
-- macOS
+- Web: installable PWA served by `mnscloud-webapps` at `/infragis/` (same-origin API, "Install
+  app" button, app-shell service worker with the database engine precached, new-version notice)
+- Android, iOS
+- Windows, macOS, Linux (photos from a file chooser where the platform has no camera picker)
 
 ## Authentication
 
@@ -118,13 +122,8 @@ mnscloud-infragis-mobile/
   test/
 ```
 
-Native platform folders should be generated only when packaging for the target platforms:
-
-```bash
-flutter create --platforms android,ios,windows,linux,macos .
-```
-
-Run that command only in a clean working tree and review generated files before committing.
+All six platform folders are committed. After a `sqlite3` bump in `pubspec.lock`, refresh the
+web database engine with `bash scripts/fetch-sqlite-wasm.sh` (pinned version and SHA-256).
 
 ## Validation
 

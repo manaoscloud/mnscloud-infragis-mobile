@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../api/infragis_api.dart';
 import '../data/session_vault.dart';
 import '../field_controller.dart';
+import '../pwa/install_app_button.dart';
 import 'strings.dart';
 
 /// Platform login (the MNSCloud API account) and tenant choice. No separate field credentials.
@@ -46,7 +48,7 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
     try {
-      final baseUrl = _baseUrl.text.trim();
+      final baseUrl = kIsWeb ? webApiBaseUrl() : _baseUrl.text.trim();
       final auth = InfraGisApi(baseUrl: baseUrl);
       final token = await auth.signIn(_email.text.trim(), _password.text);
       final environments = await InfraGisApi(baseUrl: baseUrl, token: token).listAccess();
@@ -106,6 +108,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    const Align(alignment: AlignmentDirectional.centerEnd, child: InstallAppButton(labeled: true)),
                     const Icon(Icons.public_rounded, size: 56),
                     const SizedBox(height: 12),
                     Text(
@@ -122,21 +125,23 @@ class _LoginScreenState extends State<LoginScreen> {
                           style: TextStyle(color: Theme.of(context).colorScheme.tertiary),
                         ),
                       ),
-                    TextFormField(
-                      controller: _baseUrl,
-                      keyboardType: TextInputType.url,
-                      decoration: InputDecoration(
-                        labelText: tr(context, 'apiUrl'),
-                        hintText: tr(context, 'apiUrlHint'),
+                    // The web app is served by the platform: its API is the same origin.
+                    if (!kIsWeb)
+                      TextFormField(
+                        controller: _baseUrl,
+                        keyboardType: TextInputType.url,
+                        decoration: InputDecoration(
+                          labelText: tr(context, 'apiUrl'),
+                          hintText: tr(context, 'apiUrlHint'),
+                        ),
+                        validator: (value) {
+                          final uri = Uri.tryParse(value?.trim() ?? '');
+                          return uri == null || uri.scheme != 'https' || uri.host.isEmpty
+                              ? tr(context, 'apiUrlHint')
+                              : null;
+                        },
                       ),
-                      validator: (value) {
-                        final uri = Uri.tryParse(value?.trim() ?? '');
-                        return uri == null || uri.scheme != 'https' || uri.host.isEmpty
-                            ? tr(context, 'apiUrlHint')
-                            : null;
-                      },
-                    ),
-                    const SizedBox(height: 12),
+                    if (!kIsWeb) const SizedBox(height: 12),
                     TextFormField(
                       controller: _email,
                       keyboardType: TextInputType.emailAddress,
@@ -173,3 +178,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 }
+
+/// API of the web app: `/api/v1` of the origin that serves it (the edge routes both).
+String webApiBaseUrl() => '${Uri.base.origin}/api/v1';

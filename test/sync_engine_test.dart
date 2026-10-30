@@ -115,7 +115,6 @@ SyncEngine engine(FakeApi api, LocalStore store) => SyncEngine(
       api: api,
       store: store,
       clock: () => DateTime.utc(2026, 10, 25, 12),
-      readFile: (_) async => Uint8List.fromList([0xff, 0xd8, 0xff]),
     );
 
 void main() {
@@ -162,7 +161,8 @@ void main() {
         now: DateTime.utc(2026),
       );
     }
-    store.queuePhoto(uuid: 'ph-1', assetUuid: a, path: '/nonexistent/ph-1.jpg', fileName: 'ph-1.jpg', kind: 'PHOTO', now: DateTime.utc(2026));
+    store.queuePhoto(
+        uuid: 'ph-1', assetUuid: a, bytes: Uint8List.fromList([0xff, 0xd8, 0xff]), fileName: 'ph-1.jpg', kind: 'PHOTO', now: DateTime.utc(2026));
     api.answer = (operation) => switch (operation['uuid']) { 'op-2' => 'CONFLICT', 'op-3' => 'REJECTED', _ => 'ACCEPTED' };
     final report = await engine(api, store).run();
 
@@ -172,6 +172,7 @@ void main() {
     expect(report.rejected, 1);
     expect(report.photos, 1, reason: 'the photo goes once its asset exists on the server');
     expect(api.uploads, ['$a/ph-1']);
+    expect(store.photoBytes('ph-1'), isNull, reason: 'a sent photo leaves the encrypted store');
     final open = store.operations();
     expect(open.map((operation) => operation.status), [QueueStatus.conflict, QueueStatus.rejected]);
     expect(open.first.serverItem!['IgaName'], 'SERVER');

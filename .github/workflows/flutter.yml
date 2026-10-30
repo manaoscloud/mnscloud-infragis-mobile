@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
   schedule:
-    # Weekly iOS build (macOS runners cost about ten times Linux minutes).
+    # Weekly Apple builds (macOS runners cost about ten times Linux minutes).
     - cron: "23 6 * * 2"
   workflow_dispatch:
 
@@ -20,12 +20,21 @@ jobs:
     # pinned toolchain, native configuration check, analyze, test and one build per target.
     uses: manaoscloud/mnscloud-runtime-kit/.github/workflows/flutter-client-ci.yml@main
     with:
-      targets: "android,ios"
+      targets: "web,android,linux,windows,macos,ios"
+      web_mode: pwa
+      pwa_app: infragis
+      # The encrypted web database engine must open offline too.
+      pwa_generate_args: "--precache sqlite3mc.wasm"
+      web_check: bash scripts/fetch-sqlite-wasm.sh --check
       native_check_args: >-
         --android-permission ACCESS_FINE_LOCATION --android-permission ACCESS_COARSE_LOCATION
         --android-permission CAMERA
         --ios-plist-key NSLocationWhenInUseUsageDescription --ios-plist-key NSCameraUsageDescription
-      # maplibre_gl's Android build uses JDK 21.
+        --macos-entitlement com.apple.security.personal-information.location
+        --macos-entitlement com.apple.security.device.camera
+      # flutter_secure_storage on Linux.
+      linux_packages: "libsecret-1-dev libjsoncpp-dev"
+      # Android Gradle plugins of this app build with JDK 21.
       java_version: "21"
       apple: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
 
@@ -53,11 +62,14 @@ jobs:
     uses: manaoscloud/mnscloud-runtime-kit/.github/workflows/sonarcloud-dart.yml@main
     secrets:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    with:
+      # web/flutter_bootstrap.js is a Flutter build template ({{flutter_js}}), not JavaScript.
+      exclusions: "web/flutter_bootstrap.js"
 
   security:
     # Shared security gate (Gitleaks, Trivy, Opengrep), pinned in mnscloud-runtime-kit.
     uses: manaoscloud/mnscloud-runtime-kit/.github/workflows/security-scan.yml@main
     with:
-      # No Dart rule set in opengrep-rules: scan scripts only.
-      opengrep_rules: "bash"
+      # No Dart rule set in opengrep-rules: scan the web loader and scripts only.
+      opengrep_rules: "javascript bash"
       opengrep_exclude: "test"

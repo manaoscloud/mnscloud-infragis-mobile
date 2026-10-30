@@ -4,6 +4,22 @@ import 'package:flutter/widgets.dart';
 const _texts = <String, List<String>>{
   // key: [pt-BR, en, es]
   'apiUrl': ['Endereço da API', 'API address', 'Dirección de la API'],
+  'close': ['Fechar', 'Close', 'Cerrar'],
+  'updateAvailable': ['Nova versão disponível', 'New version available', 'Nueva versión disponible'],
+  'updateImportant': ['Atualização importante', 'Important update', 'Actualización importante'],
+  'updateHelp': [
+    'Uma nova versão do InfraGIS está pronta. A página será recarregada; o que não foi sincronizado continua guardado no aparelho.',
+    'A new InfraGIS version is ready. The page will reload; anything not synced yet stays on the device.',
+    'Una nueva versión de InfraGIS está lista. La página se recargará; lo que no se sincronizó sigue guardado en el dispositivo.',
+  ],
+  'updateNow': ['Atualizar agora', 'Update now', 'Actualizar ahora'],
+  'updateLater': ['Depois', 'Later', 'Después'],
+  'installApp': ['Instalar app', 'Install app', 'Instalar app'],
+  'installIosSteps': [
+    'No Safari, toque em Compartilhar e depois em "Adicionar à Tela de Início".',
+    'In Safari, tap Share and then "Add to Home Screen".',
+    'En Safari, toca Compartir y luego "Agregar a pantalla de inicio".',
+  ],
   'apiUrlHint': ['https://exemplo.com.br/api/v1', 'https://example.com/api/v1', 'https://ejemplo.com/api/v1'],
   'email': ['E-mail', 'E-mail', 'Correo'],
   'password': ['Senha', 'Password', 'Contraseña'],
