@@ -119,7 +119,7 @@ class WorkOrderScreen extends StatelessWidget {
       note = await _askNote(context, statusLabel(context, status), required: true);
       if (note == null) return;
     }
-    controller.workOrderAction('status', orderUuid, {'status': status, if (note != null) 'note': note});
+    controller.workOrderAction('status', orderUuid, {'status': status, 'note': ?note});
   }
 
   Future<void> _addMaterial(BuildContext context) async {

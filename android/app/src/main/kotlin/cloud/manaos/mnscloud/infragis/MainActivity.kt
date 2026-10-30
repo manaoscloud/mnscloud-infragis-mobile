@@ -1,4 +1,4 @@
-package cloud.mnscloud.mnscloud_infragis_mobile
+package cloud.manaos.mnscloud.infragis
 
 import io.flutter.embedding.android.FlutterActivity
 
