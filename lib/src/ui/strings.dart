@@ -75,6 +75,8 @@ const _texts = <String, List<String>>{
   'noStockCatalog': ['Sem produtos ou locais de estoque neste aparelho. Sincronize ou peça acesso ao Estoque.', 'No products or stock locations on this device. Sync or ask for Stock access.', 'Sin productos o ubicaciones de stock en este dispositivo. Sincronice o pida acceso a Stock.'],
   'issueMaterials': ['Dar baixa nos materiais', 'Issue materials', 'Dar de baja los materiales'],
   'refused': ['Recusado', 'Refused', 'Rechazado'],
+  'checklist': ['Checklist', 'Checklist', 'Checklist'],
+  'checklistRequired': ['Marque os itens obrigatórios (*) do checklist antes de concluir.', 'Check the required (*) checklist items before finishing.', 'Marque los ítems obligatorios (*) del checklist antes de concluir.'],
   'wo.OPEN': ['Aberta', 'Open', 'Abierta'],
   'wo.ASSIGNED': ['Atribuída', 'Assigned', 'Asignada'],
   'wo.IN_PROGRESS': ['Em andamento', 'In progress', 'En curso'],

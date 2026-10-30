@@ -43,6 +43,8 @@ Responses use the canonical envelope `{ status, message, data, duration }`.
 ```text
 GET  /api/v1/workorders/orders?mine=1&openOnly=1&limit=200   (tenant.workorders.orders.read)
 GET  /api/v1/workorders/orders/:uuid/materials               (tenant.workorders.orders.read)
+GET  /api/v1/workorders/orders/:uuid/checklist               (tenant.workorders.orders.read)
+PUT  /api/v1/workorders/checklist/:item                       (tenant.workorders.orders.write)
 POST /api/v1/workorders/orders/:uuid/status                  (tenant.workorders.orders.write)
 POST /api/v1/workorders/orders/:uuid/notes                   (tenant.workorders.orders.write)
 POST /api/v1/workorders/orders/:uuid/materials               (tenant.workorders.orders.write)
@@ -57,6 +59,8 @@ GET  /api/v1/stock/locations?limit=500                       (Stock picker)
 - `materials` takes `materialUUID`, `productUUID`, `locationUUID`, `quantity`; a repeated
   `materialUUID` returns the same material.
 - `materials/issue` moves the planned materials out of Stock; issuing twice has nothing left to move.
+- `checklist/:item` takes `done` (and optional `note`) and sets the state, so a retry is harmless;
+  DONE is refused while a required item is open.
 
 ## Not yet available
 
