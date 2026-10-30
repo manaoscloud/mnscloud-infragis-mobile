@@ -1,13 +1,12 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
 
 import 'api/infragis_api.dart';
 import 'core/ids.dart';
 import 'data/local_store.dart';
 import 'data/session_vault.dart';
+import 'data/tenant_store.dart';
 import 'sync/sync_engine.dart';
 
 /// App state: the signed-in tenant, its encrypted local store and the sync loop.
@@ -22,7 +21,6 @@ class FieldController extends ChangeNotifier {
   bool syncing = false;
   String? notice;
   Timer? _timer;
-  String? _databasePath;
 
   bool get signedIn => session != null && store != null;
 
@@ -38,23 +36,15 @@ class FieldController extends ChangeNotifier {
   }
 
   Future<void> _open(FieldSession value) async {
-    final directory = await getApplicationSupportDirectory();
     final key = await vault.databaseKey(value.environmentUuid);
     store?.close();
-    _databasePath = '${directory.path}/infragis-${value.environmentUuid}.db';
-    store = LocalStore.open(_databasePath!, key: key);
+    store = await openTenantStore(value.environmentUuid, key);
     session = value;
     api = InfraGisApi(baseUrl: value.baseUrl).forTenant(value.token, value.environmentUuid);
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(minutes: 2), (_) => sync());
     notifyListeners();
     unawaited(sync());
-  }
-
-  Future<String> photoDirectory() async {
-    final directory = Directory('${(await getApplicationSupportDirectory()).path}/photos');
-    if (!directory.existsSync()) directory.createSync(recursive: true);
-    return directory.path;
   }
 
   Future<void> sync() async {
@@ -68,11 +58,11 @@ class FieldController extends ChangeNotifier {
     lastReport = report;
     if (report.revoked) {
       notice = 'revoked';
-      await vault.forgetTenant(session!.environmentUuid);
+      final environmentUuid = session!.environmentUuid;
+      await vault.forgetTenant(environmentUuid);
       await _close();
-      // The rows are already wiped; the file and its write-ahead log go too.
-      final path = _databasePath;
-      if (path != null) LocalStore.deleteFiles([path, '$path-wal', '$path-shm']);
+      // The rows (photos included) are already wiped; the database itself goes too.
+      await deleteTenantStore(environmentUuid);
     } else if (report.unauthorized) {
       notice = 'sessionExpired';
       await vault.signOut();
@@ -112,7 +102,8 @@ class FieldController extends ChangeNotifier {
 
   void queuePhoto({
     required String assetUuid,
-    required String path,
+    required Uint8List bytes,
+    required String fileName,
     String? caption,
     double? latitude,
     double? longitude,
@@ -121,8 +112,8 @@ class FieldController extends ChangeNotifier {
     store!.queuePhoto(
       uuid: uuid,
       assetUuid: assetUuid,
-      path: path,
-      fileName: path.split('/').last,
+      bytes: bytes,
+      fileName: fileName,
       kind: 'PHOTO',
       caption: caption,
       latitude: latitude,

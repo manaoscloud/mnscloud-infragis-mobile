@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -219,15 +218,18 @@ class _AssetFormScreenState extends State<AssetFormScreen> {
   }
 
   Future<void> _photo() async {
-    final picked = await ImagePicker().pickImage(source: ImageSource.camera, imageQuality: 80, maxWidth: 2560);
+    // Camera where the platform has one for the picker (Android, iOS, web); a file chooser on
+    // desktop.
+    final picker = ImagePicker();
+    final source = picker.supportsImageSource(ImageSource.camera) ? ImageSource.camera : ImageSource.gallery;
+    final picked = await picker.pickImage(source: source, imageQuality: 80, maxWidth: 2560);
     if (picked == null || !mounted) return;
+    final bytes = await picked.readAsBytes();
     final position = await currentPosition();
-    final directory = await widget.controller.photoDirectory();
-    final path = '$directory/${newUuid()}.jpg';
-    await File(picked.path).copy(path);
     widget.controller.queuePhoto(
       assetUuid: widget.assetUuid!,
-      path: path,
+      bytes: bytes,
+      fileName: '${newUuid()}.jpg',
       latitude: position?.latitude,
       longitude: position?.longitude,
     );

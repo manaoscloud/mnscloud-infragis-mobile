@@ -1,6 +1,3 @@
-import 'dart:io';
-import 'dart:typed_data';
-
 import '../api/infragis_api.dart';
 import '../data/local_store.dart';
 
@@ -32,14 +29,11 @@ class SyncEngine {
     required this.api,
     required this.store,
     DateTime Function()? clock,
-    Future<Uint8List> Function(String path)? readFile,
-  })  : _clock = clock ?? DateTime.now,
-        _readFile = readFile ?? ((path) => File(path).readAsBytes());
+  }) : _clock = clock ?? DateTime.now;
 
   final FieldApi api;
   final LocalStore store;
   final DateTime Function() _clock;
-  final Future<Uint8List> Function(String path) _readFile;
 
   int get _now => _clock().millisecondsSinceEpoch;
 
@@ -53,9 +47,7 @@ class SyncEngine {
       store.setMeta('lastSyncAt', _clock().toUtc().toIso8601String());
     } on ApiException catch (error) {
       if (error.revoked) {
-        final photos = store.photos().map((photo) => photo.path).toList();
         store.wipe();
-        LocalStore.deleteFiles(photos);
         report.revoked = true;
       } else if (error.unauthorized) {
         report.unauthorized = true;
@@ -117,7 +109,11 @@ class SyncEngine {
   Future<void> _photos(SyncReport report) async {
     for (final photo in store.duePhotos(_now)) {
       try {
-        final bytes = await _readFile(photo.path);
+        final bytes = store.photoBytes(photo.uuid);
+        if (bytes == null) {
+          store.completePhoto(photo.uuid);
+          continue;
+        }
         await api.uploadAttachment(
           assetUuid: photo.assetUuid,
           attachmentUuid: photo.uuid,
@@ -130,12 +126,9 @@ class SyncEngine {
           capturedAt: photo.capturedAt,
         );
         store.completePhoto(photo.uuid);
-        LocalStore.deleteFiles([photo.path]);
         report.photos++;
       } on ApiException catch (error) {
         if (error.revoked || error.unauthorized) rethrow;
-        store.retryPhotoLater(photo.uuid, _now, error.message);
-      } on FileSystemException catch (error) {
         store.retryPhotoLater(photo.uuid, _now, error.message);
       }
     }

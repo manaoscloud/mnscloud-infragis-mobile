@@ -10,7 +10,8 @@ Tables (`lib/src/data/local_store.dart`):
 - `catalog`: projects, layers, categories, asset types and statuses
 - `asset`: the asset copy with its server `syncAt`
 - `outbox`: queued writes in order (`pending`, `conflict`, `rejected`) with backoff
-- `photo_outbox`: photos waiting for upload (file path, GPS, capture time)
+- `photo_outbox`: photos waiting for upload (GPS, capture time); their bytes live in `photo_blob`
+  inside the same encrypted database (no loose files, the same on the web)
 
 ## Flow (`lib/src/sync/sync_engine.dart`)
 
