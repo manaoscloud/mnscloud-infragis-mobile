@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "cloud.mnscloud.mnscloud_infragis_mobile"
+    namespace = "cloud.manaos.mnscloud.infragis"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -15,8 +15,8 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "cloud.mnscloud.mnscloud_infragis_mobile"
+        // Application id fixed by decision U4 (cloud.manaos.mnscloud.<app>); never change it after publication.
+        applicationId = "cloud.manaos.mnscloud.infragis"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // Secure storage (Keystore) and MapLibre need Android 6.0+.
@@ -32,7 +32,7 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
+            // Release signing (store keys from the GitHub Environment) arrives with native distribution (phase 4).
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
         }

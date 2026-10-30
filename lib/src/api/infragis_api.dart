@@ -221,7 +221,7 @@ class InfraGisApi implements FieldApi {
   Future<SyncPage> bootstrap(String? cursor) async => _page(
         await _send(
           () => _client.get(
-            uri('/infragis/sync/bootstrap', {if (cursor != null) 'cursor': cursor}),
+            uri('/infragis/sync/bootstrap', {'cursor': ?cursor}),
             headers: headers(),
           ),
         ),

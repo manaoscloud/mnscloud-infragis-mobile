@@ -215,7 +215,7 @@ class _FieldMapViewState extends State<FieldMapView> {
       ),
       filter: ['==', ['geometry-type'], 'Point'],
     );
-    map.onFeatureTapped.add((Point<double> _, LatLng __, String id, String layerId, Annotation? ___) {
+    map.onFeatureTapped.add((Point<double> _, LatLng _, String id, String layerId, Annotation? _) {
       if (layerId.startsWith('assets')) widget.onOpen(id);
     });
     _ready = true;
