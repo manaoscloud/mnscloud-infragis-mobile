@@ -28,8 +28,9 @@ jobs:
       web_check: bash scripts/fetch-sqlite-wasm.sh --check
       native_check_args: >-
         --android-permission ACCESS_FINE_LOCATION --android-permission ACCESS_COARSE_LOCATION
-        --android-permission CAMERA
+        --android-permission CAMERA --android-permission USE_BIOMETRIC
         --ios-plist-key NSLocationWhenInUseUsageDescription --ios-plist-key NSCameraUsageDescription
+        --ios-plist-key NSFaceIDUsageDescription
         --macos-entitlement com.apple.security.personal-information.location
         --macos-entitlement com.apple.security.device.camera
       # flutter_secure_storage on Linux.

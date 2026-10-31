@@ -4,12 +4,15 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'src/brand/brand.dart';
 import 'src/field_controller.dart';
 import 'src/ui/home_screen.dart';
+import 'src/ui/lock_screen.dart';
 import 'src/ui/login_screen.dart';
 import 'src/version/app_update_overlay.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   final controller = FieldController();
+  // After some time in the background the encrypted copy closes and the PIN is asked again.
+  AppLifecycleListener(onHide: controller.backgrounded, onShow: controller.foregrounded);
   runApp(MnsCloudInfraGisMobileApp(controller: controller));
   controller.restore();
   controller.loadBrand();
@@ -57,8 +60,13 @@ class MnsCloudInfraGisMobileApp extends StatelessWidget {
       ),
       home: ListenableBuilder(
         listenable: controller,
-        builder: (context, _) =>
-            controller.signedIn ? HomeScreen(controller: controller) : LoginScreen(controller: controller),
+        builder: (context, _) => controller.locked
+            ? LockScreen(controller: controller)
+            : !controller.signedIn
+                ? LoginScreen(controller: controller)
+                : controller.needsPin
+                    ? PinSetupScreen(controller: controller)
+                    : HomeScreen(controller: controller),
       ),
     );
   }

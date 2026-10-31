@@ -27,6 +27,10 @@ Implemented scope:
   platforms; offline asset list
 - point asset create/update/delete queue with GPS capture and asset type properties
 - photos with GPS and capture time, uploaded once the asset exists on the server
+- offline base map areas downloaded into the encrypted database, with size, validity and removal
+  that never loses pending changes (`docs/offline-maps.md`)
+- own field session with a rotating refresh token (`/infragis/auth/*`) and local unlock with a PIN
+  or device biometrics (`docs/security.md`)
 - conflict and refusal presentation based on API decisions (keep mine / take the server)
 - remote wipe when the API removes the tenant access
 - work orders assigned to the technician: start, hold, finish or cancel with a note, notes,
@@ -35,8 +39,6 @@ Implemented scope:
 
 Roadmap scope:
 
-- offline unlock with local PIN or device biometrics
-- offline base map packages (PMTiles download)
 - network (ports, splices) in the field
 - line and polygon drawing on the device
 

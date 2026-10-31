@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 
 /// Error answered by the API (or the network). [status] is the HTTP status, 0 without a response.
@@ -73,23 +74,102 @@ abstract class FieldApi {
   Future<void> sendWorkOrderAction(String kind, String orderUuid, Map<String, dynamic> body);
 }
 
+/// Result of the field sign-in: the short access token and, on native platforms, the rotating
+/// refresh token (the web keeps it only in the HttpOnly cookie the API sets).
+class FieldTokens {
+  const FieldTokens({required this.accessToken, this.refreshToken});
+
+  final String accessToken;
+  final String? refreshToken;
+}
+
+/// Tokens of the InfraGIS field session (`/infragis/auth/*`): the access token lives in memory
+/// and lasts minutes; the refresh token rotates on every use. A 401 refreshes once and repeats the
+/// request. Native clients send the refresh token they keep in secure storage ([onRotated] saves
+/// each new one); the web sends nothing and the browser presents the HttpOnly cookie.
+/// A session saved by an older version (platform token, no refresh token) keeps working until it
+/// expires, then asks for a new sign-in.
+class FieldAuth {
+  FieldAuth({
+    required this.baseUrl,
+    this.accessToken,
+    this.refreshToken,
+    this.onRotated,
+    http.Client? client,
+    bool? web,
+  })  : _client = client ?? http.Client(),
+        web = web ?? kIsWeb;
+
+  final String baseUrl;
+  final bool web;
+  final Future<void> Function(String? refreshToken)? onRotated;
+  final http.Client _client;
+  String? accessToken;
+  String? refreshToken;
+  Future<bool>? _refreshing;
+
+  bool get canRefresh => web || (refreshToken?.isNotEmpty ?? false);
+
+  /// One refresh at a time: concurrent requests that got a 401 wait for the same rotation.
+  Future<bool> refresh() {
+    final running = _refreshing;
+    if (running != null) return running;
+    final next = _rotate();
+    _refreshing = next;
+    next.whenComplete(() => _refreshing = null).ignore();
+    return next;
+  }
+
+  Future<bool> _rotate() async {
+    if (!canRefresh) return false;
+    final root = baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    http.Response response;
+    try {
+      response = await _client
+          .post(
+            Uri.parse('$root/infragis/auth/refresh'),
+            headers: const {'Accept': 'application/json', 'Content-Type': 'application/json'},
+            body: jsonEncode(web ? const {} : {'refreshToken': refreshToken}),
+          )
+          .timeout(const Duration(seconds: 30));
+    } catch (error) {
+      throw ApiException('Network unavailable: $error');
+    }
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      accessToken = null;
+      refreshToken = null;
+      await onRotated?.call(null);
+      return false;
+    }
+    final tokens = InfraGisApi.fieldTokens(InfraGisApi.decode(response));
+    accessToken = tokens.accessToken;
+    if (!web) {
+      refreshToken = tokens.refreshToken;
+      await onRotated?.call(refreshToken);
+    }
+    return true;
+  }
+}
+
 /// MNSCloud API client: the platform login, tenant access and the InfraGIS field routes.
 class InfraGisApi implements FieldApi {
   InfraGisApi({
     required this.baseUrl,
-    this.token,
+    this.auth,
     this.environmentUuid,
     http.Client? client,
   }) : _client = client ?? http.Client();
 
   final String baseUrl;
-  final String? token;
+  final FieldAuth? auth;
   final String? environmentUuid;
   final http.Client _client;
 
-  InfraGisApi forTenant(String token, String environmentUuid) => InfraGisApi(
+  String? get token => auth?.accessToken;
+
+  InfraGisApi forTenant(FieldAuth auth, String environmentUuid) => InfraGisApi(
         baseUrl: baseUrl,
-        token: token,
+        auth: auth,
         environmentUuid: environmentUuid,
         client: _client,
       );
@@ -110,13 +190,21 @@ class InfraGisApi implements FieldApi {
       };
 
   Future<Map<String, dynamic>> _send(Future<http.Response> Function() request) async {
-    http.Response response;
+    var response = await _attempt(request);
+    // The access token lasts minutes: a 401 rotates the session once and repeats the request.
+    final session = auth;
+    if (response.statusCode == 401 && session != null && session.canRefresh && await session.refresh()) {
+      response = await _attempt(request);
+    }
+    return decode(response);
+  }
+
+  Future<http.Response> _attempt(Future<http.Response> Function() request) async {
     try {
-      response = await request().timeout(const Duration(seconds: 60));
+      return await request().timeout(const Duration(seconds: 60));
     } catch (error) {
       throw ApiException('Network unavailable: $error');
     }
-    return decode(response);
   }
 
   static Map<String, dynamic> decode(http.Response response) {
@@ -140,25 +228,43 @@ class InfraGisApi implements FieldApi {
     return data is Map<String, dynamic> ? data : <String, dynamic>{};
   }
 
-  Future<String> signIn(String email, String password) async {
+  /// Field session of the platform account (`/infragis/auth/signin`), independent of the App.
+  Future<FieldTokens> signIn(String email, String password, {String? deviceName}) async {
     final payload = await _send(
       () => _client.post(
-        uri('/auth/signin'),
+        uri('/infragis/auth/signin'),
         headers: headers(),
-        body: jsonEncode({'email': email, 'password': password}),
+        body: jsonEncode({
+          'email': email,
+          'password': password,
+          'clientKind': kIsWeb ? 'web' : 'native',
+          'deviceName': ?deviceName,
+        }),
       ),
     );
+    return fieldTokens(payload);
+  }
+
+  static FieldTokens fieldTokens(Map<String, dynamic> payload) {
     final body = data(payload);
-    for (final candidate in [
-      payload['token'],
-      payload['accessToken'],
-      body['token'],
-      body['accessToken'],
-      body['jwt'],
-    ]) {
-      if (candidate is String && candidate.trim().isNotEmpty) return candidate.trim();
+    final access = body['accessToken'];
+    if (access is! String || access.trim().isEmpty) {
+      throw const ApiException('The API did not return a session token.');
     }
-    throw const ApiException('The API did not return a session token.');
+    final refresh = body['refreshToken'];
+    return FieldTokens(
+      accessToken: access.trim(),
+      refreshToken: refresh is String && refresh.isNotEmpty ? refresh : null,
+    );
+  }
+
+  /// Ends the field session on the server (best effort: the device forgets it anyway).
+  Future<void> signOut() async {
+    try {
+      await _send(() => _client.post(uri('/infragis/auth/signout'), headers: headers()));
+    } catch (_) {
+      // Offline or already ended.
+    }
   }
 
   Future<List<EnvironmentAccess>> listAccess() async {
@@ -313,18 +419,23 @@ class InfraGisApi implements FieldApi {
     double? longitude,
     DateTime? capturedAt,
   }) async {
-    final request = http.MultipartRequest('POST', uri('/infragis/assets/$assetUuid/attachments'))
-      ..headers.addAll(headers(json: false))
-      ..fields['attachmentUUID'] = attachmentUuid
-      ..fields['kind'] = kind;
-    if (caption != null && caption.isNotEmpty) request.fields['caption'] = caption;
-    if (latitude != null && longitude != null) {
-      request.fields['latitude'] = '$latitude';
-      request.fields['longitude'] = '$longitude';
+    // A new request per attempt: a multipart request can be sent only once (the 401 retry).
+    http.MultipartRequest build() {
+      final request = http.MultipartRequest('POST', uri('/infragis/assets/$assetUuid/attachments'))
+        ..headers.addAll(headers(json: false))
+        ..fields['attachmentUUID'] = attachmentUuid
+        ..fields['kind'] = kind;
+      if (caption != null && caption.isNotEmpty) request.fields['caption'] = caption;
+      if (latitude != null && longitude != null) {
+        request.fields['latitude'] = '$latitude';
+        request.fields['longitude'] = '$longitude';
+      }
+      if (capturedAt != null) request.fields['capturedAt'] = capturedAt.toUtc().toIso8601String();
+      request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: fileName));
+      return request;
     }
-    if (capturedAt != null) request.fields['capturedAt'] = capturedAt.toUtc().toIso8601String();
-    request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: fileName));
-    final payload = await _send(() async => http.Response.fromStream(await _client.send(request)));
+
+    final payload = await _send(() async => http.Response.fromStream(await _client.send(build())));
     final item = data(payload)['item'];
     return item is Map<String, dynamic> ? item : <String, dynamic>{};
   }
