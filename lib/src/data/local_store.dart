@@ -100,7 +100,7 @@ class QueuedAttachment {
 class LocalStore {
   LocalStore._(this._db, this._persist);
 
-  static const schemaVersion = 3;
+  static const schemaVersion = 4;
   final CommonDatabase _db;
   final Future<void> Function() _persist;
 
@@ -177,6 +177,21 @@ class LocalStore {
       ''');
       // v3: the photos live in the encrypted database (no loose files; works on the web).
       _db.execute('CREATE TABLE IF NOT EXISTS photo_blob (uuid TEXT PRIMARY KEY, bytes BLOB NOT NULL) STRICT;');
+      // v4: offline map packages (base map tiles of an area) and the cached style resources. They
+      // never share a table with the queues: removing a package can never lose a pending change.
+      _db.execute('''
+        CREATE TABLE IF NOT EXISTS map_package (
+          uuid TEXT PRIMARY KEY, name TEXT NOT NULL, west REAL NOT NULL, south REAL NOT NULL,
+          east REAL NOT NULL, north REAL NOT NULL, min_zoom INTEGER NOT NULL, max_zoom INTEGER NOT NULL,
+          tiles INTEGER NOT NULL DEFAULT 0, bytes INTEGER NOT NULL DEFAULT 0, complete INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL, expires_at TEXT NOT NULL) STRICT;
+        CREATE TABLE IF NOT EXISTS map_tile (
+          package_uuid TEXT NOT NULL, source TEXT NOT NULL, z INTEGER NOT NULL, x INTEGER NOT NULL,
+          y INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (package_uuid, source, z, x, y)) STRICT;
+        CREATE INDEX IF NOT EXISTS map_tile_lookup ON map_tile (source, z, x, y);
+        CREATE TABLE IF NOT EXISTS map_resource (
+          url TEXT PRIMARY KEY, content_type TEXT, body BLOB NOT NULL, fetched_at TEXT NOT NULL) STRICT;
+      ''');
       _db.execute('PRAGMA user_version = $schemaVersion');
     });
   }
@@ -624,10 +639,96 @@ class LocalStore {
         [error, nowMs, uuid],
       );
 
+  /// Offline map packages of this tenant, newest first.
+  List<MapPackage> mapPackages() => _db
+      .select('SELECT * FROM map_package ORDER BY created_at DESC')
+      .map(MapPackage.fromRow)
+      .toList();
+
+  void createMapPackage(MapPackage package) => _db.execute(
+        'INSERT INTO map_package (uuid, name, west, south, east, north, min_zoom, max_zoom, created_at, expires_at) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          package.uuid,
+          package.name,
+          package.west,
+          package.south,
+          package.east,
+          package.north,
+          package.minZoom,
+          package.maxZoom,
+          package.createdAt.toUtc().toIso8601String(),
+          package.expiresAt.toUtc().toIso8601String(),
+        ],
+      );
+
+  /// Tiles of one download batch; the package totals follow.
+  void putMapTiles(String packageUuid, String source, List<(int, int, int, Uint8List)> tiles) {
+    if (tiles.isEmpty) return;
+    _transaction(() {
+      for (final (z, x, y, data) in tiles) {
+        _db.execute(
+          'INSERT OR REPLACE INTO map_tile (package_uuid, source, z, x, y, data) VALUES (?, ?, ?, ?, ?, ?)',
+          [packageUuid, source, z, x, y, data],
+        );
+      }
+      _db.execute(
+        'UPDATE map_package SET tiles = (SELECT COUNT(*) FROM map_tile WHERE package_uuid = ?), '
+        'bytes = (SELECT IFNULL(SUM(length(data)), 0) FROM map_tile WHERE package_uuid = ?) WHERE uuid = ?',
+        [packageUuid, packageUuid, packageUuid],
+      );
+    });
+  }
+
+  void completeMapPackage(String packageUuid) =>
+      _db.execute('UPDATE map_package SET complete = 1 WHERE uuid = ?', [packageUuid]);
+
+  /// Removes the package and its tiles only: queued changes, photos and assets stay.
+  void removeMapPackage(String packageUuid) => _transaction(() {
+        _db.execute('DELETE FROM map_tile WHERE package_uuid = ?', [packageUuid]);
+        _db.execute('DELETE FROM map_package WHERE uuid = ?', [packageUuid]);
+      });
+
+  /// A downloaded tile of [source] at z/x/y from any package, or null.
+  Uint8List? mapTile(String source, int z, int x, int y) {
+    final rows = _db.select('SELECT data FROM map_tile WHERE source = ? AND z = ? AND x = ? AND y = ? LIMIT 1', [source, z, x, y]);
+    return rows.isEmpty ? null : rows.first['data'] as Uint8List;
+  }
+
+  /// Highest zoom downloaded for [source] (the offline provider overzooms past it), or null.
+  int? mapMaxZoom(String source) {
+    final value = _db.select('SELECT MAX(z) AS z FROM map_tile WHERE source = ?', [source]).first['z'];
+    return value is int ? value : null;
+  }
+
+  /// Style resources (style JSON, TileJSON, sprites) kept so the base map opens offline.
+  (String?, Uint8List)? mapResource(String url) {
+    final rows = _db.select('SELECT content_type, body FROM map_resource WHERE url = ?', [url]);
+    if (rows.isEmpty) return null;
+    return (rows.first['content_type'] as String?, rows.first['body'] as Uint8List);
+  }
+
+  void putMapResource(String url, String? contentType, Uint8List body) => _db.execute(
+        'INSERT OR REPLACE INTO map_resource (url, content_type, body, fetched_at) VALUES (?, ?, ?, ?)',
+        [url, contentType, body, DateTime.now().toUtc().toIso8601String()],
+      );
+
   /// Remote wipe: everything of this tenant leaves the device (the API revoked the access).
   void wipe() {
     _transaction(() {
-      for (final table in ['meta', 'catalog', 'asset', 'outbox', 'photo_outbox', 'photo_blob', 'work_order', 'wo_outbox']) {
+      for (final table in [
+        'meta',
+        'catalog',
+        'asset',
+        'outbox',
+        'photo_outbox',
+        'photo_blob',
+        'work_order',
+        'wo_outbox',
+        'map_package',
+        'map_tile',
+        'map_resource',
+      ]) {
         _db.execute('DELETE FROM $table');
       }
     });
@@ -640,4 +741,55 @@ String normalizeUuid(String value) {
   if (!RegExp(r'^[0-9a-f]{32}$').hasMatch(hex)) return value.toLowerCase();
   return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-'
       '${hex.substring(16, 20)}-${hex.substring(20)}';
+}
+
+/// One offline base map area: its box, zoom range, size and validity (re-download after it).
+class MapPackage {
+  const MapPackage({
+    required this.uuid,
+    required this.name,
+    required this.west,
+    required this.south,
+    required this.east,
+    required this.north,
+    required this.minZoom,
+    required this.maxZoom,
+    required this.createdAt,
+    required this.expiresAt,
+    this.tiles = 0,
+    this.bytes = 0,
+    this.complete = false,
+  });
+
+  factory MapPackage.fromRow(Map<String, dynamic> row) => MapPackage(
+        uuid: row['uuid'] as String,
+        name: row['name'] as String,
+        west: (row['west'] as num).toDouble(),
+        south: (row['south'] as num).toDouble(),
+        east: (row['east'] as num).toDouble(),
+        north: (row['north'] as num).toDouble(),
+        minZoom: row['min_zoom'] as int,
+        maxZoom: row['max_zoom'] as int,
+        tiles: row['tiles'] as int,
+        bytes: row['bytes'] as int,
+        complete: row['complete'] == 1,
+        createdAt: DateTime.parse(row['created_at'] as String),
+        expiresAt: DateTime.parse(row['expires_at'] as String),
+      );
+
+  final String uuid;
+  final String name;
+  final double west;
+  final double south;
+  final double east;
+  final double north;
+  final int minZoom;
+  final int maxZoom;
+  final int tiles;
+  final int bytes;
+  final bool complete;
+  final DateTime createdAt;
+  final DateTime expiresAt;
+
+  bool expired(DateTime now) => now.isAfter(expiresAt);
 }

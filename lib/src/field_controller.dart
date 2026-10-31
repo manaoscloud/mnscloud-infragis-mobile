@@ -166,7 +166,42 @@ class FieldController extends ChangeNotifier {
     unawaited(sync());
   }
 
+  /// Something outside the controller changed the store (a map download): refresh the screens.
+  void changed() => notifyListeners();
+
   bool get workOrdersAvailable => store?.meta('workOrders') == 'available';
+
+  /// Platform map base. The last answer is kept in the encrypted store so the map opens offline.
+  Future<Map<String, dynamic>> mapConfig() async {
+    final current = store;
+    try {
+      final config = await api!.mapConfig();
+      current?.setMeta('mapConfig', jsonEncode(config));
+      await current?.persist();
+      return config;
+    } catch (_) {
+      final cached = current?.meta('mapConfig');
+      if (cached != null) {
+        try {
+          return (jsonDecode(cached) as Map).cast<String, dynamic>();
+        } catch (_) {
+          // Unreadable: no base map.
+        }
+      }
+      return const {};
+    }
+  }
+
+  /// Removes an offline map area. Pending changes live in other tables and always stay; a sync is
+  /// attempted first so the device leaves the area with nothing waiting when it can.
+  Future<void> removeMapPackage(String packageUuid) async {
+    await sync();
+    final current = store;
+    if (current == null) return;
+    current.removeMapPackage(packageUuid);
+    await current.persist();
+    notifyListeners();
+  }
 
   /// Queues a work order action; the material line keeps the operation UUID as its identifier.
   Future<void> workOrderAction(String kind, String orderUuid, Map<String, dynamic> body) async {
