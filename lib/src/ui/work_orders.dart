@@ -308,8 +308,9 @@ class WorkOrderScreen extends StatelessWidget {
                     title: Text('${tr(context, 'refused')}: ${action.kind}'),
                     subtitle: Text(action.error ?? ''),
                     trailing: TextButton(
-                      onPressed: () {
+                      onPressed: () async {
                         store.discardWorkOrderAction(action.uuid);
+                        await store.persist();
                         controller.sync();
                       },
                       child: Text(tr(context, 'discard')),

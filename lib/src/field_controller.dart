@@ -87,6 +87,7 @@ class FieldController extends ChangeNotifier {
     syncing = true;
     notifyListeners();
     final report = await SyncEngine(api: client, store: current).run();
+    await current.persist();
     syncing = false;
     lastReport = report;
     if (report.revoked) {
@@ -105,10 +106,12 @@ class FieldController extends ChangeNotifier {
   }
 
   /// Queues an asset create or update (data in the `POST/PUT /infragis/assets` shape).
-  void saveAsset({String? assetUuid, required Map<String, dynamic> data, required Map<String, dynamic> localItem}) {
+  Future<void> saveAsset(
+      {String? assetUuid, required Map<String, dynamic> data, required Map<String, dynamic> localItem}) async {
     final creating = assetUuid == null;
     final uuid = assetUuid ?? newUuid();
-    store!.queueAssetWrite(
+    final current = store!;
+    current.queueAssetWrite(
       operationUuid: newUuid(),
       kind: creating ? 'asset.create' : 'asset.update',
       assetUuid: uuid,
@@ -116,12 +119,14 @@ class FieldController extends ChangeNotifier {
       localItem: localItem,
       now: DateTime.now(),
     );
+    await current.persist();
     notifyListeners();
     unawaited(sync());
   }
 
-  void deleteAsset(String assetUuid) {
-    store!.queueAssetWrite(
+  Future<void> deleteAsset(String assetUuid) async {
+    final current = store!;
+    current.queueAssetWrite(
       operationUuid: newUuid(),
       kind: 'asset.delete',
       assetUuid: assetUuid,
@@ -129,20 +134,22 @@ class FieldController extends ChangeNotifier {
       localItem: null,
       now: DateTime.now(),
     );
+    await current.persist();
     notifyListeners();
     unawaited(sync());
   }
 
-  void queuePhoto({
+  Future<void> queuePhoto({
     required String assetUuid,
     required Uint8List bytes,
     required String fileName,
     String? caption,
     double? latitude,
     double? longitude,
-  }) {
+  }) async {
     final uuid = newUuid();
-    store!.queuePhoto(
+    final current = store!;
+    current.queuePhoto(
       uuid: uuid,
       assetUuid: assetUuid,
       bytes: bytes,
@@ -154,6 +161,7 @@ class FieldController extends ChangeNotifier {
       capturedAt: DateTime.now(),
       now: DateTime.now(),
     );
+    await current.persist();
     notifyListeners();
     unawaited(sync());
   }
@@ -161,9 +169,10 @@ class FieldController extends ChangeNotifier {
   bool get workOrdersAvailable => store?.meta('workOrders') == 'available';
 
   /// Queues a work order action; the material line keeps the operation UUID as its identifier.
-  void workOrderAction(String kind, String orderUuid, Map<String, dynamic> body) {
+  Future<void> workOrderAction(String kind, String orderUuid, Map<String, dynamic> body) async {
     final uuid = newUuid();
-    store!.queueWorkOrderAction(
+    final current = store!;
+    current.queueWorkOrderAction(
       operationUuid: uuid,
       kind: kind,
       orderUuid: orderUuid,
@@ -173,12 +182,15 @@ class FieldController extends ChangeNotifier {
       },
       now: DateTime.now(),
     );
+    await current.persist();
     notifyListeners();
     unawaited(sync());
   }
 
-  void resolve(String operationUuid, {required bool keepMine}) {
-    keepMine ? store!.keepMine(operationUuid) : store!.discard(operationUuid);
+  Future<void> resolve(String operationUuid, {required bool keepMine}) async {
+    final current = store!;
+    keepMine ? current.keepMine(operationUuid) : current.discard(operationUuid);
+    await current.persist();
     notifyListeners();
     if (keepMine) unawaited(sync());
   }

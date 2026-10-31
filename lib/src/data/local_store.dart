@@ -98,10 +98,18 @@ class QueuedAttachment {
 /// native files on Android, iOS and desktop, IndexedDB through `sqlite3mc.wasm` on the web. The key
 /// and the session token live in secure storage, never in this database.
 class LocalStore {
-  LocalStore._(this._db);
+  LocalStore._(this._db, this._persist);
 
   static const schemaVersion = 3;
   final CommonDatabase _db;
+  final Future<void> Function() _persist;
+
+  static Future<void> _synchronous() async {}
+
+  /// Completes once every write made so far is on disk. Native SQLite writes synchronously; the web
+  /// file system writes IndexedDB in the background, so callers await this before they report a
+  /// change as kept (a reload or a closed tab right after would lose it otherwise).
+  Future<void> persist() => _persist();
 
   /// Opens (or creates) the store at [path] with [key] on native platforms; `:memory:` for tests.
   static LocalStore open(String path, {required String key}) =>
@@ -109,7 +117,8 @@ class LocalStore {
 
   /// Store over an opened database: applies the key, the journal mode and the schema. The web has
   /// no write-ahead log (its virtual file system writes whole pages to IndexedDB).
-  static LocalStore fromDatabase(CommonDatabase db, {required String key, bool writeAheadLog = true}) {
+  static LocalStore fromDatabase(CommonDatabase db,
+      {required String key, bool writeAheadLog = true, Future<void> Function() persist = _synchronous}) {
     // An in-memory database (tests) never touches the disk and takes no key.
     if (key.isNotEmpty) {
       db.execute("PRAGMA key = '${key.replaceAll("'", "''")}'");
@@ -118,7 +127,7 @@ class LocalStore {
     db.select('SELECT count(*) FROM sqlite_master');
     if (writeAheadLog) db.execute('PRAGMA journal_mode = WAL');
     db.execute('PRAGMA synchronous = FULL');
-    final store = LocalStore._(db);
+    final store = LocalStore._(db, persist);
     store._migrate();
     return store;
   }
