@@ -33,7 +33,7 @@ void main() {
     expect(notified, 1);
 
     persisted = Completer<void>()..complete();
-    await controller.deleteAsset(store.operations().single.assetUuid!);
+    await controller.deleteAsset(store.operations().single.assetUuid);
     expect(calls, 2);
     expect(notified, 2);
   });
