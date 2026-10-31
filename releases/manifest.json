@@ -3,10 +3,16 @@
   "repository": "manaoscloud/mnscloud-infragis-mobile",
   "channels": {
     "stable": {
-      "version": "0.1.2",
-      "ref": "v0.1.2",
-      "releasedAt": "2026-10-24T00:43:39Z",
-      "minimumVersion": "0.1.0"
+      "version": "0.1.16",
+      "ref": "v0.1.16",
+      "releasedAt": "2026-10-31T19:53:43Z",
+      "minimumVersion": "0.1.0",
+      "artifact": {
+        "name": "mnscloud-infragis-mobile-web-v0.1.16.tar.gz",
+        "sha256": "63857e9f22d4fac233fd1e0322cb5f4490aefb94089090ad2a7dc362ba52da4c",
+        "sizeBytes": 14767057,
+        "contentType": "application/gzip"
+      }
     }
   }
 }
