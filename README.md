@@ -17,7 +17,9 @@ Implemented scope:
 - MNSCloud API login and tenant environment selection (token in platform secure storage)
 - encrypted SQLite copy per tenant (SQLite3MultipleCiphers, key in secure storage): a native file
   on Android, iOS and desktop, IndexedDB through `web/sqlite3mc.wasm` on the web; photos are
-  stored as blobs inside it until they are sent
+  stored as blobs inside it until they are sent. On the web the database opens on the cipher
+  wrapper of the IndexedDB file system (`multipleciphers-<name>`), and a change counts as kept
+  only after `LocalStore.persist()` (IndexedDB is written in the background)
 - bootstrap download of catalogs and assets, then incremental changes with tombstones
 - map (flutter_map + `flutter_map_vector_tiles`, one engine on every platform) with the platform
   base map: a MapLibre style URL or the own PMTiles archive rendered with the Protomaps light

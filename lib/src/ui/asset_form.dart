@@ -166,7 +166,7 @@ class _AssetFormScreenState extends State<AssetFormScreen> {
     return values;
   }
 
-  void _save() {
+  Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     final point = _point;
     final latitude = point ? double.parse(_latitude.text.replaceAll(',', '.')) : null;
@@ -196,7 +196,9 @@ class _AssetFormScreenState extends State<AssetFormScreen> {
       if (point) 'IgmLatitude': latitude,
       if (point) 'IgmLongitude': longitude,
     };
-    widget.controller.saveAsset(assetUuid: widget.assetUuid, data: data, localItem: local);
+    // "Saved" only once the change is on disk (the web writes IndexedDB in the background).
+    await widget.controller.saveAsset(assetUuid: widget.assetUuid, data: data, localItem: local);
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr(context, 'savedOffline'))));
     Navigator.of(context).pop();
   }
@@ -213,8 +215,8 @@ class _AssetFormScreenState extends State<AssetFormScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    widget.controller.deleteAsset(widget.assetUuid!);
-    Navigator.of(context).pop();
+    await widget.controller.deleteAsset(widget.assetUuid!);
+    if (mounted) Navigator.of(context).pop();
   }
 
   Future<void> _photo() async {
@@ -226,7 +228,7 @@ class _AssetFormScreenState extends State<AssetFormScreen> {
     if (picked == null || !mounted) return;
     final bytes = await picked.readAsBytes();
     final position = await currentPosition();
-    widget.controller.queuePhoto(
+    await widget.controller.queuePhoto(
       assetUuid: widget.assetUuid!,
       bytes: bytes,
       fileName: '${newUuid()}.jpg',
