@@ -64,8 +64,9 @@ jobs:
     secrets:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     with:
-      # web/flutter_bootstrap.js is a Flutter build template ({{flutter_js}}), not JavaScript.
-      exclusions: "web/flutter_bootstrap.js"
+      # web/flutter_bootstrap.js is a Flutter build template ({{flutter_js}}), not JavaScript;
+      # lib/src/ui/strings.dart is the pt/en/es text table (data, like Pulse's l10n files).
+      exclusions: "web/flutter_bootstrap.js,lib/src/ui/strings.dart"
 
   security:
     # Shared security gate (Gitleaks, Trivy, Opengrep), pinned in mnscloud-runtime-kit.

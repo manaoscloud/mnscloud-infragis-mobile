@@ -6,6 +6,7 @@ import 'package:flutter_map_vector_tiles/flutter_map_vector_tiles.dart' as vt;
 import '../data/local_store.dart';
 import '../field_controller.dart';
 import '../map/offline_map.dart';
+import 'dialogs.dart';
 import 'strings.dart';
 
 String formatBytes(int bytes) {
@@ -117,17 +118,7 @@ class MapPackagesCard extends StatelessWidget {
   final FieldController controller;
 
   Future<void> _remove(BuildContext context, MapPackage package) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        content: Text(tr(context, 'mapRemoveConfirm')),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(tr(context, 'cancel'))),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(tr(context, 'remove'))),
-        ],
-      ),
-    );
-    if (confirmed == true) await controller.removeMapPackage(package.uuid);
+    if (await confirmAction(context, 'mapRemoveConfirm', 'remove')) await controller.removeMapPackage(package.uuid);
   }
 
   @override
