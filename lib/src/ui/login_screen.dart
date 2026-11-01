@@ -50,9 +50,13 @@ class _LoginScreenState extends State<LoginScreen> {
     });
     try {
       final baseUrl = kIsWeb ? webApiBaseUrl() : _baseUrl.text.trim();
-      final auth = InfraGisApi(baseUrl: baseUrl);
-      final token = await auth.signIn(_email.text.trim(), _password.text);
-      final environments = await InfraGisApi(baseUrl: baseUrl, token: token).listAccess();
+      final tokens = await InfraGisApi(baseUrl: baseUrl).signIn(
+        _email.text.trim(),
+        _password.text,
+        deviceName: kIsWeb ? 'web' : defaultTargetPlatform.name,
+      );
+      final auth = FieldAuth(baseUrl: baseUrl, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken);
+      final environments = await InfraGisApi(baseUrl: baseUrl, auth: auth).listAccess();
       if (!mounted) return;
       if (environments.isEmpty) throw ApiException(tr(context, 'noEnvironment'));
       final selected = environments.length == 1 ? environments.first : await _choose(environments);
@@ -60,7 +64,8 @@ class _LoginScreenState extends State<LoginScreen> {
       await widget.controller.signIn(
         FieldSession(
           baseUrl: baseUrl,
-          token: token,
+          token: auth.accessToken,
+          refreshToken: auth.refreshToken,
           environmentUuid: selected.uuid,
           environmentName: selected.name,
         ),

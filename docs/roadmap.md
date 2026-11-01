@@ -18,10 +18,17 @@ Done (`infragis-field-work-orders`):
 2. Work order checklists (`workorders-checklists-sla`): check items offline; finishing waits for the
    required ones.
 
+Done (`infragis-offline-maps`, Flutter clients program phase 3b):
+
+1. Own field session (`/infragis/auth/*`, UserToken type I) with a rotating refresh token: 15-minute
+   access token, 14 days idle and 30 days at most, so field work stays offline for days.
+2. Offline unlock with a local PIN and device biometrics (`docs/security.md`).
+3. Offline base map areas downloaded from the platform base map into the encrypted database
+   (`docs/offline-maps.md`); the style and the map configuration are kept for offline starts.
+
 Next:
 
-1. Offline unlock with PIN or biometrics.
-2. Offline base map packages (PMTiles) once the platform host exists.
-3. Work order checklist photos per item.
-4. Network (ports, splices) and line/polygon drawing in the field.
-5. Store release packaging (signing, store listings).
+1. Work order checklist photos per item.
+2. Network (ports, splices) and line/polygon drawing in the field.
+3. Device provisioning by QR code from the App (no API address typed on native platforms).
+4. Store release packaging (signing, store listings).

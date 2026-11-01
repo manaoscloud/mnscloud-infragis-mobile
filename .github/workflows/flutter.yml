@@ -28,8 +28,9 @@ jobs:
       web_check: bash scripts/fetch-sqlite-wasm.sh --check
       native_check_args: >-
         --android-permission ACCESS_FINE_LOCATION --android-permission ACCESS_COARSE_LOCATION
-        --android-permission CAMERA
+        --android-permission CAMERA --android-permission USE_BIOMETRIC
         --ios-plist-key NSLocationWhenInUseUsageDescription --ios-plist-key NSCameraUsageDescription
+        --ios-plist-key NSFaceIDUsageDescription
         --macos-entitlement com.apple.security.personal-information.location
         --macos-entitlement com.apple.security.device.camera
       # flutter_secure_storage on Linux.
@@ -63,8 +64,9 @@ jobs:
     secrets:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     with:
-      # web/flutter_bootstrap.js is a Flutter build template ({{flutter_js}}), not JavaScript.
-      exclusions: "web/flutter_bootstrap.js"
+      # web/flutter_bootstrap.js is a Flutter build template ({{flutter_js}}), not JavaScript;
+      # lib/src/ui/strings.dart is the pt/en/es text table (data, like Pulse's l10n files).
+      exclusions: "web/flutter_bootstrap.js,lib/src/ui/strings.dart"
 
   security:
     # Shared security gate (Gitleaks, Trivy, Opengrep), pinned in mnscloud-runtime-kit.

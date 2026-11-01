@@ -6,6 +6,8 @@
 	<string>The position of the asset you collect and of the photos you take.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Photos of the assets you collect in the field.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Unlock the field data on this device.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

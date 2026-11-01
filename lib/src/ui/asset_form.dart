@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../core/ids.dart';
 import '../data/local_store.dart';
 import '../field_controller.dart';
+import 'dialogs.dart';
 import 'strings.dart';
 
 /// Current GPS position, or null when the device has no fix or the user refused the permission.
@@ -204,17 +205,8 @@ class _AssetFormScreenState extends State<AssetFormScreen> {
   }
 
   Future<void> _delete() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        content: Text(tr(context, 'deleteConfirm')),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(tr(context, 'cancel'))),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(tr(context, 'delete'))),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
+    final confirmed = await confirmAction(context, 'deleteConfirm', 'delete');
+    if (!confirmed || !mounted) return;
     await widget.controller.deleteAsset(widget.assetUuid!);
     if (mounted) Navigator.of(context).pop();
   }

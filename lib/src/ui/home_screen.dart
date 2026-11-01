@@ -7,6 +7,8 @@ import 'package:latlong2/latlong.dart';
 
 import '../data/local_store.dart';
 import '../field_controller.dart';
+import '../map/offline_map.dart';
+import 'map_packages.dart';
 import '../pwa/install_app_button.dart';
 import 'asset_form.dart';
 import 'strings.dart';
@@ -149,6 +151,8 @@ Map<String, dynamic>? _geometry(Map<String, dynamic> asset) {
 /// from `/infragis/map/config` and the local assets on top; pending ones are orange until the
 /// server accepts them. Same providers as the App (`style` URL, own `pmtiles` archive with the
 /// Protomaps light flavor, `none`); Mapbox is refused. Without a base map the assets still show.
+/// The base map always comes from the platform (no public fallback here); downloaded areas and the
+/// last style and configuration seen are read from the encrypted database, so it opens offline.
 class FieldMapView extends StatefulWidget {
   const FieldMapView({super.key, required this.controller, required this.onOpen});
 
@@ -162,8 +166,10 @@ class FieldMapView extends StatefulWidget {
 class _FieldMapViewState extends State<FieldMapView> {
   static const _protomapsStyle = 'asset://assets/map/protomaps-light.json';
   final _hits = LayerHitNotifier<String>(null);
+  final _map = MapController();
   Map<String, dynamic>? _config;
   vt.Style? _style;
+  Map<String, OfflineTileProvider> _sources = const {};
   LatLng? _me;
 
   @override
@@ -171,7 +177,7 @@ class _FieldMapViewState extends State<FieldMapView> {
     super.initState();
     widget.controller.addListener(_refresh);
     _hits.addListener(_tapped);
-    widget.controller.api?.mapConfig().then(_loaded).catchError((_) => _loaded(const {}));
+    widget.controller.mapConfig().then(_loaded);
     currentPosition().then((position) {
       if (mounted && position != null) setState(() => _me = LatLng(position.latitude, position.longitude));
     });
@@ -182,6 +188,10 @@ class _FieldMapViewState extends State<FieldMapView> {
     widget.controller.removeListener(_refresh);
     _hits.dispose();
     _style?.dispose();
+    for (final source in _sources.values) {
+      source.dispose();
+    }
+    _map.dispose();
     super.dispose();
   }
 
@@ -202,7 +212,40 @@ class _FieldMapViewState extends State<FieldMapView> {
       style?.dispose();
       return;
     }
-    setState(() => _style = style);
+    // Every vector source reads the downloaded packages first, then the network.
+    final sources = <String, OfflineTileProvider>{
+      for (final entry in style?.providers.providers.entries ?? const <MapEntry<String, vt.VectorTileProvider>>[])
+        entry.key: entry.value is OfflineTileProvider
+            ? entry.value as OfflineTileProvider
+            : OfflineTileProvider(store: _store, source: entry.value.cacheKey, inner: entry.value),
+    };
+    setState(() {
+      _style = style;
+      _sources = sources;
+    });
+  }
+
+  LocalStore _store() => widget.controller.store!;
+
+  Future<void> _download() async {
+    final camera = _map.camera;
+    final bounds = camera.visibleBounds;
+    final sources = {
+      for (final source in _sources.values)
+        if (source.inner != null) source.source: source.inner!,
+    };
+    if (sources.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr(context, 'mapDownloadUnavailable'))));
+      return;
+    }
+    await downloadMapArea(
+      context: context,
+      controller: widget.controller,
+      sources: sources,
+      box: MapBox(west: bounds.west, south: bounds.south, east: bounds.east, north: bounds.north),
+      zoom: camera.zoom.floor(),
+    );
+    if (mounted) setState(() {});
   }
 
   Future<vt.Style?> _readStyle(Map<String, dynamic> config) async {
@@ -211,14 +254,25 @@ class _FieldMapViewState extends State<FieldMapView> {
     final styleUrl = '${config['styleUrl'] ?? ''}';
     try {
       if (provider == 'pmtiles' && pmtiles.startsWith('https://')) {
+        final source = 'pmtiles:$pmtiles';
         return await vt.StyleReader(
           uri: _protomapsStyle,
           language: 'pt',
-          resolveProvider: (id) async => id == 'protomaps' ? vt.PmTilesVectorTileProvider.open(pmtiles) : null,
+          resolveProvider: (id) async {
+            if (id != 'protomaps') return null;
+            vt.VectorTileProvider? archive;
+            try {
+              archive = await vt.PmTilesVectorTileProvider.open(pmtiles);
+            } catch (_) {
+              // Offline: only the downloaded areas of the archive.
+            }
+            return OfflineTileProvider(store: _store, source: source, inner: archive, maximumZoom: archive?.maximumZoom);
+          },
         ).read();
       }
       if (provider == 'style' && styleUrl.startsWith('https://')) {
-        return await vt.StyleReader(uri: styleUrl, language: 'pt').read();
+        // The style, its TileJSON and sprites are kept in the encrypted database for offline starts.
+        return await vt.StyleReader(uri: styleUrl, language: 'pt', httpClient: OfflineStyleClient(_store)).read();
       }
     } catch (_) {
       // No base map (offline before the first load, or an unreachable style): assets only.
@@ -281,7 +335,8 @@ class _FieldMapViewState extends State<FieldMapView> {
       ...?style?.attributions.map((item) => item.text),
       if ('${config['attribution'] ?? ''}'.isNotEmpty) '${config['attribution']}',
     ].join(' · ');
-    return FlutterMap(
+    final map = FlutterMap(
+      mapController: _map,
       options: MapOptions(
         initialCenter: first ?? LatLng(latitude, longitude),
         initialZoom: first == null ? zoom : 15,
@@ -292,7 +347,7 @@ class _FieldMapViewState extends State<FieldMapView> {
         if (style != null)
           vt.VectorTileLayer(
             theme: style.theme,
-            tileProviders: style.providers,
+            tileProviders: vt.TileProviders(_sources),
             rasterSources: style.rasterSources,
             sprites: style.sprites,
           ),
@@ -314,6 +369,34 @@ class _FieldMapViewState extends State<FieldMapView> {
             ),
           ]),
         if (attribution.isNotEmpty) SimpleAttributionWidget(source: Text(attribution)),
+      ],
+    );
+    return Stack(
+      children: [
+        map,
+        if (style != null)
+          Positioned(
+            top: 12,
+            right: 12,
+            child: FloatingActionButton.small(
+              heroTag: 'mapDownload',
+              tooltip: tr(context, 'mapDownload'),
+              onPressed: _download,
+              child: const Icon(Icons.download_for_offline_outlined),
+            ),
+          )
+        else if ('${config['provider'] ?? ''}' != 'none')
+          Positioned(
+            top: 12,
+            left: 12,
+            right: 12,
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(tr(context, 'mapBaseUnavailable')),
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -440,6 +523,8 @@ class SyncView extends StatelessWidget {
               title: Text(tr(context, 'photosPending')),
               trailing: Text('${store.photos().length}'),
             ),
+            const SizedBox(height: 8),
+            MapPackagesCard(controller: controller),
             const Divider(),
             Text(tr(context, 'conflicts'), style: Theme.of(context).textTheme.titleMedium),
             if (open.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Text(tr(context, 'noConflicts'))),

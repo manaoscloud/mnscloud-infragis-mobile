@@ -13,14 +13,28 @@ import 'core/ids.dart';
 import 'data/local_store.dart';
 import 'data/session_vault.dart';
 import 'data/tenant_store.dart';
+import 'security/app_lock.dart';
 import 'sync/sync_engine.dart';
 
 /// App state: the signed-in tenant, its encrypted local store and the sync loop.
 class FieldController extends ChangeNotifier {
-  FieldController({SessionVault? vault}) : vault = vault ?? SessionVault();
+  FieldController({SessionVault? vault, AppLock? lock, DateTime Function()? clock})
+      : vault = vault ?? SessionVault(),
+        lock = lock ?? AppLock(),
+        _clock = clock ?? DateTime.now;
 
   final SessionVault vault;
+  final AppLock lock;
+  final DateTime Function() _clock;
   FieldSession? session;
+
+  /// The PIN (or biometrics) is asked before the encrypted copy opens.
+  bool locked = false;
+
+  /// Signed in without a PIN yet: the app asks for one before the field screens.
+  bool needsPin = false;
+  FieldSession? _lockedSession;
+  DateTime? _backgroundSince;
   LocalStore? store;
   InfraGisApi? api;
   SyncReport? lastReport;
@@ -56,16 +70,86 @@ class FieldController extends ChangeNotifier {
 
   bool get signedIn => session != null && store != null;
 
-  /// Restores the previous session (the token stays valid until the API says otherwise).
+  /// Restores the previous session. With a PIN the encrypted copy stays closed until it is
+  /// unlocked; a session saved before the PIN existed opens and asks to create one.
   Future<void> restore() async {
     final saved = await vault.read();
-    if (saved != null) await _open(saved);
+    if (saved == null) return;
+    if (await lock.hasPin()) {
+      _lockedSession = saved;
+      locked = true;
+      notifyListeners();
+      return;
+    }
+    await _open(saved);
+    needsPin = true;
+    notifyListeners();
   }
 
   Future<void> signIn(FieldSession value) async {
     await vault.save(value);
     await _open(value);
+    needsPin = !await lock.hasPin();
+    notifyListeners();
     unawaited(loadBrand(value.baseUrl));
+  }
+
+  /// Creates the local PIN (and turns biometrics on when asked and available).
+  Future<void> createPin(String pin, {bool biometrics = false}) async {
+    await lock.setPin(pin);
+    await lock.setBiometrics(biometrics && await lock.biometricsAvailable());
+    needsPin = false;
+    notifyListeners();
+  }
+
+  /// Opens the encrypted copy with the PIN. Returns null when unlocked, otherwise the attempts
+  /// left; at zero the session ends (the copy stays encrypted on the device).
+  Future<int?> unlock(String pin) async {
+    final saved = _lockedSession;
+    if (saved == null) return null;
+    final left = await lock.verify(pin);
+    if (left == null) {
+      await _unlocked(saved);
+      return null;
+    }
+    if (left == 0) {
+      notice = 'pinLocked';
+      await lock.clear();
+      await vault.signOut();
+      _lockedSession = null;
+      locked = false;
+      notifyListeners();
+    }
+    return left;
+  }
+
+  Future<bool> unlockWithBiometrics(String reason) async {
+    final saved = _lockedSession;
+    if (saved == null || !await lock.unlockWithBiometrics(reason)) return false;
+    await _unlocked(saved);
+    return true;
+  }
+
+  Future<void> _unlocked(FieldSession saved) async {
+    _lockedSession = null;
+    locked = false;
+    await _open(saved);
+  }
+
+  /// The app went to the background or was hidden.
+  void backgrounded() => _backgroundSince ??= _clock();
+
+  /// Back in the foreground: after [AppLock.idle] the copy closes and the PIN is asked again.
+  Future<void> foregrounded() async {
+    final since = _backgroundSince;
+    _backgroundSince = null;
+    final current = session;
+    if (since == null || current == null || locked || needsPin) return;
+    if (_clock().difference(since) < AppLock.idle || !await lock.hasPin()) return;
+    _lockedSession = current;
+    await _close();
+    locked = true;
+    notifyListeners();
   }
 
   Future<void> _open(FieldSession value) async {
@@ -73,7 +157,13 @@ class FieldController extends ChangeNotifier {
     store?.close();
     store = await openTenantStore(value.environmentUuid, key);
     session = value;
-    api = InfraGisApi(baseUrl: value.baseUrl).forTenant(value.token, value.environmentUuid);
+    final auth = FieldAuth(
+      baseUrl: value.baseUrl,
+      accessToken: value.token,
+      refreshToken: value.refreshToken,
+      onRotated: vault.saveRefreshToken,
+    );
+    api = InfraGisApi(baseUrl: value.baseUrl).forTenant(auth, value.environmentUuid);
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(minutes: 2), (_) => sync());
     notifyListeners();
@@ -94,12 +184,14 @@ class FieldController extends ChangeNotifier {
       notice = 'revoked';
       final environmentUuid = session!.environmentUuid;
       await vault.forgetTenant(environmentUuid);
+      await lock.clear();
       await _close();
       // The rows (photos included) are already wiped; the database itself goes too.
       await deleteTenantStore(environmentUuid);
     } else if (report.unauthorized) {
       notice = 'sessionExpired';
       await vault.signOut();
+      await lock.clear();
       await _close();
     }
     notifyListeners();
@@ -166,7 +258,42 @@ class FieldController extends ChangeNotifier {
     unawaited(sync());
   }
 
+  /// Something outside the controller changed the store (a map download): refresh the screens.
+  void changed() => notifyListeners();
+
   bool get workOrdersAvailable => store?.meta('workOrders') == 'available';
+
+  /// Platform map base. The last answer is kept in the encrypted store so the map opens offline.
+  Future<Map<String, dynamic>> mapConfig() async {
+    final current = store;
+    try {
+      final config = await api!.mapConfig();
+      current?.setMeta('mapConfig', jsonEncode(config));
+      await current?.persist();
+      return config;
+    } catch (_) {
+      final cached = current?.meta('mapConfig');
+      if (cached != null) {
+        try {
+          return (jsonDecode(cached) as Map).cast<String, dynamic>();
+        } catch (_) {
+          // Unreadable: no base map.
+        }
+      }
+      return const {};
+    }
+  }
+
+  /// Removes an offline map area. Pending changes live in other tables and always stay; a sync is
+  /// attempted first so the device leaves the area with nothing waiting when it can.
+  Future<void> removeMapPackage(String packageUuid) async {
+    await sync();
+    final current = store;
+    if (current == null) return;
+    current.removeMapPackage(packageUuid);
+    await current.persist();
+    notifyListeners();
+  }
 
   /// Queues a work order action; the material line keeps the operation UUID as its identifier.
   Future<void> workOrderAction(String kind, String orderUuid, Map<String, dynamic> body) async {
@@ -196,7 +323,10 @@ class FieldController extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    await api?.signOut();
     await vault.signOut();
+    await lock.clear();
+    needsPin = false;
     await _close();
     notifyListeners();
   }
