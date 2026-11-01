@@ -49,9 +49,28 @@ class _HomeScreenState extends State<HomeScreen> {
     await _open(latitude: position?.latitude, longitude: position?.longitude);
   }
 
+  /// Changes the account of the local copy; a refusal (work still waiting, offline) is explained.
+  Future<void> _switchAccount() async {
+    final reason = await _controller.switchAccount();
+    if (reason != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr(context, reason))));
+    }
+  }
+
+  /// A lost account brings the operator back here with a notice when one account remains (the
+  /// screen may be the same instance, so the notice is checked on every build).
+  void _showNotice() => WidgetsBinding.instance.addPostFrameCallback((_) {
+        final notice = _controller.notice;
+        if (notice != 'accountRevoked' || !mounted) return;
+        _controller.notice = null;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr(context, notice!))));
+      });
+
   @override
   Widget build(BuildContext context) {
+    if (_controller.notice == 'accountRevoked') _showNotice();
     final session = _controller.session!;
+    final account = session.accountUuid == null ? null : session.accountName ?? tr(context, 'ownNetwork');
     final orders = _controller.workOrdersAvailable;
     final pages = [
       FieldMapView(controller: _controller, onOpen: (uuid) => _open(assetUuid: uuid)),
@@ -63,8 +82,22 @@ class _HomeScreenState extends State<HomeScreen> {
     final tab = _tab.clamp(0, pages.length - 1);
     return Scaffold(
       appBar: AppBar(
-        title: Text(session.environmentName, overflow: TextOverflow.ellipsis),
+        title: account == null
+            ? Text(session.environmentName, overflow: TextOverflow.ellipsis)
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(session.environmentName, overflow: TextOverflow.ellipsis),
+                  Text(account, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
+                ],
+              ),
         actions: [
+          IconButton(
+            key: const Key('switchAccount'),
+            tooltip: tr(context, 'switchAccount'),
+            onPressed: _controller.syncing ? null : _switchAccount,
+            icon: const Icon(Icons.swap_horiz),
+          ),
           IconButton(
             tooltip: tr(context, 'syncNow'),
             onPressed: _controller.syncing ? null : _controller.sync,

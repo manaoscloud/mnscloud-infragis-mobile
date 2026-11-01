@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'src/brand/brand.dart';
 import 'src/field_controller.dart';
+import 'src/ui/account_screen.dart';
 import 'src/ui/home_screen.dart';
 import 'src/ui/lock_screen.dart';
 import 'src/ui/login_screen.dart';
@@ -62,7 +63,9 @@ class MnsCloudInfraGisMobileApp extends StatelessWidget {
         listenable: controller,
         builder: (context, _) => controller.locked
             ? LockScreen(controller: controller)
-            : !controller.signedIn
+            : controller.needsAccount
+                ? AccountScreen(controller: controller)
+                : !controller.signedIn
                 ? LoginScreen(controller: controller)
                 : controller.needsPin
                     ? PinSetupScreen(controller: controller)

@@ -16,9 +16,9 @@ import 'data/tenant_store.dart';
 import 'security/app_lock.dart';
 import 'sync/sync_engine.dart';
 
-/// App state: the signed-in tenant, its encrypted local store and the sync loop.
+/// App state: the signed-in tenant and InfraGIS account, its encrypted local store and the sync loop.
 class FieldController extends ChangeNotifier {
-  FieldController({SessionVault? vault, AppLock? lock, DateTime Function()? clock})
+  FieldController({SessionVault? vault, AppLock? lock, DateTime Function()? clock, this.httpClient})
       : vault = vault ?? SessionVault(),
         lock = lock ?? AppLock(),
         _clock = clock ?? DateTime.now;
@@ -26,7 +26,17 @@ class FieldController extends ChangeNotifier {
   final SessionVault vault;
   final AppLock lock;
   final DateTime Function() _clock;
+  /// HTTP client of the API calls (tests pass a mock); null uses a new client.
+  final http.Client? httpClient;
   FieldSession? session;
+
+  /// Signed in, the operator chooses the InfraGIS account of the local copy among these.
+  bool needsAccount = false;
+  List<AccountOption> accountChoices = const [];
+  FieldSession? _choosing;
+
+  /// Authentication of the open session: kept to list accounts after its copy closed.
+  FieldAuth? _auth;
 
   /// The PIN (or biometrics) is asked before the encrypted copy opens.
   bool locked = false;
@@ -87,11 +97,120 @@ class FieldController extends ChangeNotifier {
   }
 
   Future<void> signIn(FieldSession value) async {
-    await vault.save(value);
-    await _open(value);
+    _auth = FieldAuth(
+      baseUrl: value.baseUrl,
+      accessToken: value.token,
+      refreshToken: value.refreshToken,
+      onRotated: vault.saveRefreshToken,
+    );
+    await vault.save(value.withAccount(null, null));
     needsPin = !await lock.hasPin();
+    await _chooseAccount(value.withAccount(null, null));
     notifyListeners();
     unawaited(loadBrand(value.baseUrl));
+  }
+
+  InfraGisApi _tenantApi(FieldSession value) => InfraGisApi(baseUrl: value.baseUrl, client: httpClient).forTenant(
+        _auth ??
+            FieldAuth(
+              baseUrl: value.baseUrl,
+              accessToken: value.token,
+              refreshToken: value.refreshToken,
+              onRotated: vault.saveRefreshToken,
+            ),
+        value.environmentUuid,
+      );
+
+  /// One account opens directly; several ask the operator. Without accounts (no permission to list
+  /// them, an older server) the copy keeps every account, as before. A tenant-wide copy of an older
+  /// version with work still queued opens first, so nothing waiting is stranded.
+  Future<void> _chooseAccount(FieldSession value) async {
+    if (await _tenantWideCopyBusy(value)) {
+      await _open(value.withAccount(null, null));
+      return;
+    }
+    List<AccountOption> options;
+    try {
+      options = await _tenantApi(value).accounts();
+    } on ApiException {
+      options = const [];
+    }
+    if (options.length <= 1) {
+      await _openAccount(value, options.isEmpty ? null : options.first);
+      return;
+    }
+    _choosing = value;
+    accountChoices = options;
+    needsAccount = true;
+    notifyListeners();
+  }
+
+  Future<bool> _tenantWideCopyBusy(FieldSession value) async {
+    if (!await vault.hasTenantWideCopy(value.environmentUuid)) return false;
+    final copy = await openTenantStore(value.environmentUuid, await vault.databaseKey(value.environmentUuid));
+    try {
+      return hasPendingWork(copy);
+    } finally {
+      copy.close();
+    }
+  }
+
+  /// The operator chose the account of the local copy.
+  Future<void> selectAccount(AccountOption option) async {
+    final value = _choosing;
+    if (value == null) return;
+    _choosing = null;
+    needsAccount = false;
+    accountChoices = const [];
+    await _openAccount(value, option);
+  }
+
+  Future<void> _openAccount(FieldSession value, AccountOption? option) async {
+    // The legacy internal account carries a server-made name: the screens show "own network".
+    final next = value.withAccount(option?.uuid, option == null || option.legacy ? null : option.name);
+    await vault.save(next);
+    if (next.accountUuid != null && await vault.hasTenantWideCopy(next.environmentUuid)) {
+      // The tenant-wide copy of an older version has nothing queued (checked before): it goes.
+      await deleteTenantStore(next.environmentUuid);
+      await vault.forgetAccount(next.environmentUuid, null);
+    }
+    await _open(next);
+  }
+
+  /// Changes the account of the local copy. The current copy is synced first and must have nothing
+  /// waiting; it stays on the device for a later return. Returns the reason when it cannot switch.
+  Future<String?> switchAccount() async {
+    final current = session;
+    if (current == null || store == null) return null;
+    await sync();
+    final open = store;
+    if (open == null) return null;
+    if (hasPendingWork(open)) return 'switchPending';
+    List<AccountOption> options;
+    try {
+      options = await api!.accounts();
+    } on ApiException {
+      return 'accountsUnavailable';
+    }
+    if (options.isEmpty || (options.length == 1 && options.first.uuid == current.accountUuid)) {
+      return 'noOtherAccount';
+    }
+    await _close();
+    _choosing = current.withAccount(null, null);
+    accountChoices = options;
+    needsAccount = true;
+    notifyListeners();
+    return null;
+  }
+
+  /// The account of the copy is out of the operator's scope or deactivated: its copy leaves the
+  /// device (like the remote wipe of a tenant) and the operator chooses again.
+  Future<void> _accountLost(FieldSession value) async {
+    notice = 'accountRevoked';
+    await _close();
+    await deleteTenantStore(value.environmentUuid, accountUuid: value.accountUuid);
+    await vault.forgetAccount(value.environmentUuid, value.accountUuid);
+    await _chooseAccount(value.withAccount(null, null));
   }
 
   /// Creates the local PIN (and turns biometrics on when asked and available).
@@ -153,17 +272,18 @@ class FieldController extends ChangeNotifier {
   }
 
   Future<void> _open(FieldSession value) async {
-    final key = await vault.databaseKey(value.environmentUuid);
+    final key = await vault.databaseKey(value.environmentUuid, value.accountUuid);
     store?.close();
-    store = await openTenantStore(value.environmentUuid, key);
+    store = await openTenantStore(value.environmentUuid, key, accountUuid: value.accountUuid);
     session = value;
-    final auth = FieldAuth(
+    final auth = _auth ??= FieldAuth(
       baseUrl: value.baseUrl,
       accessToken: value.token,
       refreshToken: value.refreshToken,
       onRotated: vault.saveRefreshToken,
     );
-    api = InfraGisApi(baseUrl: value.baseUrl).forTenant(auth, value.environmentUuid);
+    api = InfraGisApi(baseUrl: value.baseUrl, client: httpClient)
+        .forTenant(auth, value.environmentUuid, accountUuid: value.accountUuid);
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(minutes: 2), (_) => sync());
     notifyListeners();
@@ -176,6 +296,21 @@ class FieldController extends ChangeNotifier {
     if (current == null || client == null || syncing) return;
     syncing = true;
     notifyListeners();
+    final account = session?.accountUuid;
+    if (account != null) {
+      AccountState? state;
+      try {
+        state = await client.accountState(account);
+      } on ApiException {
+        // Offline, no permission to read accounts or a revoked tenant: the sync below decides.
+      }
+      if (state == AccountState.lost) {
+        syncing = false;
+        await _accountLost(session!);
+        notifyListeners();
+        return;
+      }
+    }
     final report = await SyncEngine(api: client, store: current).run();
     await current.persist();
     syncing = false;
@@ -183,16 +318,23 @@ class FieldController extends ChangeNotifier {
     if (report.revoked) {
       notice = 'revoked';
       final environmentUuid = session!.environmentUuid;
+      final copies = await vault.accountCopies(environmentUuid);
       await vault.forgetTenant(environmentUuid);
       await lock.clear();
       await _close();
-      // The rows (photos included) are already wiped; the database itself goes too.
+      _auth = null;
+      // The rows (photos included) are already wiped; the databases themselves go too, those of
+      // the other accounts of the tenant included.
       await deleteTenantStore(environmentUuid);
+      for (final copy in copies) {
+        await deleteTenantStore(environmentUuid, accountUuid: copy);
+      }
     } else if (report.unauthorized) {
       notice = 'sessionExpired';
       await vault.signOut();
       await lock.clear();
       await _close();
+      _auth = null;
     }
     notifyListeners();
   }
@@ -323,11 +465,15 @@ class FieldController extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
-    await api?.signOut();
+    await (api ?? (_choosing == null ? null : _tenantApi(_choosing!)))?.signOut();
     await vault.signOut();
     await lock.clear();
     needsPin = false;
+    needsAccount = false;
+    accountChoices = const [];
+    _choosing = null;
     await _close();
+    _auth = null;
     notifyListeners();
   }
 
@@ -346,3 +492,7 @@ class FieldController extends ChangeNotifier {
     super.dispose();
   }
 }
+
+/// Writes, photos or work order actions still waiting on the device (conflicts and refusals included).
+bool hasPendingWork(LocalStore store) =>
+    store.operations().isNotEmpty || store.photos().isNotEmpty || store.workOrderActions().isNotEmpty;

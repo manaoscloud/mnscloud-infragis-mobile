@@ -1,6 +1,7 @@
 import 'package:sqlite3/wasm.dart';
 
 import 'local_store.dart';
+import 'store_name.dart';
 
 const _fileSystemName = 'mnscloud-infragis';
 const _vfsName = 'mnscloud-infragis-idb';
@@ -16,18 +17,19 @@ Future<(WasmSqlite3, IndexedDbFileSystem)> _open() => _loading ??= () async {
       return (sqlite, fileSystem);
     }();
 
-Future<LocalStore> openTenantStore(String environmentUuid, String key) async {
+Future<LocalStore> openTenantStore(String environmentUuid, String key, {String? accountUuid}) async {
   final (sqlite, fileSystem) = await _open();
   // Only the cipher wrapper of the file system encrypts: opened on the plain VFS (by name or as the
   // default), `PRAGMA key` fails with "Encryption is not supported by the VFS".
-  return LocalStore.fromDatabase(sqlite.open('/infragis-$environmentUuid.db', vfs: 'multipleciphers-$_vfsName'),
+  return LocalStore.fromDatabase(
+      sqlite.open('/${storeFileName(environmentUuid, accountUuid)}', vfs: 'multipleciphers-$_vfsName'),
       key: key, writeAheadLog: false, persist: fileSystem.flush);
 }
 
 /// Remote wipe: the tenant database leaves the browser storage.
-Future<void> deleteTenantStore(String environmentUuid) async {
+Future<void> deleteTenantStore(String environmentUuid, {String? accountUuid}) async {
   final (_, fileSystem) = await _open();
-  final path = '/infragis-$environmentUuid.db';
+  final path = '/${storeFileName(environmentUuid, accountUuid)}';
   for (final file in [path, '$path-journal']) {
     try {
       fileSystem.xDelete(file, 0);

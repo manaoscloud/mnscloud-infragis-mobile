@@ -1,8 +1,10 @@
 # Offline Sync
 
-The offline copy of each tenant is one SQLite database encrypted with SQLite3MultipleCiphers
-(`package:sqlite3` build option `source: sqlite3mc`). Its key is random per tenant and lives in the
-platform secure storage with the session token; neither is written to SQLite or plain files.
+The offline copy of each tenant and InfraGIS account is one SQLite database encrypted with
+SQLite3MultipleCiphers (`package:sqlite3` build option `source: sqlite3mc`), file
+`infragis-<tenant>-<account>.db` (`infragis-<tenant>.db` for the tenant-wide copy below). Its key is
+random per copy and lives in the platform secure storage with the session token; neither is written
+to SQLite or plain files.
 
 Tables (`lib/src/data/local_store.dart`):
 
@@ -15,7 +17,13 @@ Tables (`lib/src/data/local_store.dart`):
 
 ## Flow (`lib/src/sync/sync_engine.dart`)
 
-1. Online login through the MNSCloud API and tenant selection (`/user/access`).
+1. Online login through the MNSCloud API, tenant selection (`/user/access`) and account selection
+   (`GET /infragis/accounts`: one account opens directly, several ask). The sync calls carry
+   `accountUUID`. Without accounts to list (no permission, an older server) the copy is tenant-wide
+   and syncs every account the operator may use, as before. A tenant-wide copy of an older version
+   with work still queued opens first; it is removed once the operator switches to an account with
+   nothing waiting.
+   Switching accounts (top bar) syncs first and needs an empty queue; each account keeps its copy.
 2. Push: queued writes go in order (at most 100 per call). Each operation UUID is the idempotency
    key: a retry is answered `DUPLICATE` with the stored result. Updates and deletes carry
    `baseSyncAt`, the server version the edit started from.
@@ -44,5 +52,10 @@ the API reason; the user discards it (a refused offline create removes the asset
 ## Revocation
 
 - 401: the session expired; the token goes, the encrypted copy stays for the next sign-in.
-- 403/402: the tenant access or the module was removed; the local copy, its photos, its database
-  file and its key are erased (remote wipe).
+- 403/402: the tenant access or the module was removed; the local copies of the tenant (every
+  account), their photos, database files and keys are erased (remote wipe).
+- Lost account: before each sync the app reads its account (`GET /infragis/accounts/:uuid`). A 404
+  (assignment removed, account deleted) or an inactive account erases that account's copy and key,
+  and the operator chooses again. Only a suspended contract (service unavailable, account active)
+  keeps the copy: existing work stays editable, as on the App. A 403 or no answer on this read
+  changes nothing.
