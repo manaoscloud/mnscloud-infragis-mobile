@@ -31,6 +31,39 @@ class EnvironmentAccess {
   final String name;
 }
 
+/// InfraGIS account (resale) the operator may use: the reseller's own network or a customer's.
+class AccountOption {
+  const AccountOption({required this.uuid, required this.name, this.customer, this.legacy = false});
+
+  final String uuid;
+  final String name;
+  final String? customer;
+
+  /// Internal account created for the rows that existed before the resale (named by the server).
+  final bool legacy;
+
+  static AccountOption? fromJson(Map item) {
+    final uuid = '${item['IgcUUID'] ?? ''}'.trim();
+    if (uuid.isEmpty) return null;
+    final customer = '${item['CustomerName'] ?? ''}'.trim();
+    return AccountOption(
+      uuid: uuid,
+      name: '${item['IgcName'] ?? uuid}'.trim(),
+      customer: customer.isEmpty ? null : customer,
+      legacy: '${item['IgcIsLegacy']}' == '1' || item['IgcIsLegacy'] == true,
+    );
+  }
+}
+
+/// Whether the account of the local copy can still be used.
+enum AccountState {
+  available,
+
+  /// Out of the operator's scope (assignment removed, account deleted) or deactivated: its local
+  /// copy must leave the device.
+  lost,
+}
+
 /// One page of the sync contract (`/infragis/sync/bootstrap` or `/infragis/sync/changes`).
 class SyncPage {
   const SyncPage({
@@ -157,22 +190,30 @@ class InfraGisApi implements FieldApi {
     required this.baseUrl,
     this.auth,
     this.environmentUuid,
+    this.accountUuid,
     http.Client? client,
   }) : _client = client ?? http.Client();
 
   final String baseUrl;
   final FieldAuth? auth;
   final String? environmentUuid;
+
+  /// InfraGIS account of the local copy; null syncs every account the operator may use.
+  final String? accountUuid;
   final http.Client _client;
 
   String? get token => auth?.accessToken;
 
-  InfraGisApi forTenant(FieldAuth auth, String environmentUuid) => InfraGisApi(
+  InfraGisApi forTenant(FieldAuth auth, String environmentUuid, {String? accountUuid}) => InfraGisApi(
         baseUrl: baseUrl,
         auth: auth,
         environmentUuid: environmentUuid,
+        accountUuid: accountUuid,
         client: _client,
       );
+
+  Map<String, String> get _account =>
+      {if (accountUuid != null && accountUuid!.isNotEmpty) 'accountUUID': accountUuid!};
 
   Uri uri(String path, [Map<String, String>? query]) {
     final root = baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
@@ -293,6 +334,34 @@ class InfraGisApi implements FieldApi {
         .toList();
   }
 
+  /// Active InfraGIS accounts the operator may use (the API limits the list to the operator scope).
+  Future<List<AccountOption>> accounts() async {
+    final payload = await _send(
+      () => _client.get(uri('/infragis/accounts', {'status': '1', 'limit': '500'}), headers: headers()),
+    );
+    final items = data(payload)['items'];
+    return (items is List ? items : const [])
+        .whereType<Map>()
+        .map(AccountOption.fromJson)
+        .whereType<AccountOption>()
+        .toList();
+  }
+
+  /// State of the account of the local copy. A 404 (out of scope or deleted) or an inactive account
+  /// is lost; any other failure is thrown so the caller keeps the copy.
+  Future<AccountState> accountState(String uuid) async {
+    try {
+      final item = data(await _send(
+        () => _client.get(uri('/infragis/accounts/${Uri.encodeComponent(uuid)}'), headers: headers()),
+      ))['item'];
+      final active = item is Map && '${item['IgcStatus']}' != '0';
+      return active ? AccountState.available : AccountState.lost;
+    } on ApiException catch (error) {
+      if (error.status == 404) return AccountState.lost;
+      rethrow;
+    }
+  }
+
   /// Platform map base (style URL, attribution, initial view) for the map screen.
   Future<Map<String, dynamic>> mapConfig() async {
     final payload = await _send(() => _client.get(uri('/infragis/map/config'), headers: headers()));
@@ -327,7 +396,7 @@ class InfraGisApi implements FieldApi {
   Future<SyncPage> bootstrap(String? cursor) async => _page(
         await _send(
           () => _client.get(
-            uri('/infragis/sync/bootstrap', {'cursor': ?cursor}),
+            uri('/infragis/sync/bootstrap', {'cursor': ?cursor, ..._account}),
             headers: headers(),
           ),
         ),
@@ -337,7 +406,7 @@ class InfraGisApi implements FieldApi {
   Future<SyncPage> changes(String cursor, {bool catalog = false}) async => _page(
         await _send(
           () => _client.get(
-            uri('/infragis/sync/changes', {'cursor': cursor, if (catalog) 'catalog': '1'}),
+            uri('/infragis/sync/changes', {'cursor': cursor, if (catalog) 'catalog': '1', ..._account}),
             headers: headers(),
           ),
         ),

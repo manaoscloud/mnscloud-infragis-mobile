@@ -19,15 +19,21 @@ X-Environment-UUID: <environment_uuid>
 ## InfraGIS (current)
 
 ```text
+GET  /api/v1/infragis/accounts?status=1         (tenant.infragis.accounts.read or projects.read)
+GET  /api/v1/infragis/accounts/:uuid             (tenant.infragis.accounts.read or projects.read)
 GET  /api/v1/infragis/map/config                 (tenant.infragis.assets.read)
-GET  /api/v1/infragis/sync/bootstrap             (tenant.infragis.assets.read)
-GET  /api/v1/infragis/sync/changes?cursor=       (tenant.infragis.assets.read)
+GET  /api/v1/infragis/sync/bootstrap?accountUUID= (tenant.infragis.assets.read)
+GET  /api/v1/infragis/sync/changes?cursor=&accountUUID= (tenant.infragis.assets.read)
 POST /api/v1/infragis/sync/push                  (tenant.infragis.assets.write)
 POST /api/v1/infragis/assets/:uuid/attachments   (tenant.infragis.assets.write, multipart)
 ```
 
 Responses use the canonical envelope `{ status, message, data, duration }`.
 
+- Accounts (resale): the list and the item answer only the accounts in the operator scope
+  (`IgcUUID`, `IgcName`, `IgcIsLegacy`, `CustomerName`, `IgcStatus`); an account outside it is 404.
+  `accountUUID` limits bootstrap and changes to one account; without it they carry every account
+  the operator may use.
 - Bootstrap pages carry `items`, `cursor`, `done`; the first page also carries `catalog` (projects,
   layers, categories, asset-types, statuses). The last cursor continues with `changes`.
 - Changes return assets changed after the cursor; deleted ones as `{ IgaUUID, deleted: true }`.
