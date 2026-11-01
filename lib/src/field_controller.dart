@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart' show Locale;
 import 'package:http/http.dart' as http;
 
 import 'api/infragis_api.dart';
+import 'api/mns_client.dart';
 import 'api/web_api_base.dart';
 import 'brand/brand.dart';
 import 'brand/brand_dom.dart';
@@ -61,11 +62,12 @@ class FieldController extends ChangeNotifier {
   /// Loads the brand of the platform that serves the app (web: same origin; native: the last API
   /// address used). Without a reachable theme the MNSCloud defaults stay.
   Future<void> loadBrand([String? baseUrl]) async {
-    final base = baseUrl ?? (kIsWeb ? webApiBaseUrl() : await vault.lastBaseUrl());
+    final base = baseUrl ?? await apiBase();
     if (base == null || base.trim().isEmpty) return;
+    final client = MnsApiClient.wrap(httpClient);
     try {
       final root = base.trim().replaceAll(RegExp(r'/+$'), '');
-      final response = await http
+      final response = await client
           .get(Uri.parse('$root/public/theme/context?app=infragis'))
           .timeout(const Duration(seconds: 8));
       if (response.statusCode != 200) return;
@@ -75,8 +77,14 @@ class FieldController extends ChangeNotifier {
       if (value?.faviconUrl case final url?) applyFavicon(url);
     } catch (_) {
       // Keeps the MNSCloud defaults.
+    } finally {
+      if (httpClient == null) client.close();
     }
   }
+
+  /// API address of the app (web: same origin; native: the open session or the last one used);
+  /// null before the first sign-in on a native device.
+  Future<String?> apiBase() async => session?.baseUrl ?? (kIsWeb ? webApiBaseUrl() : await vault.lastBaseUrl());
 
   bool get signedIn => session != null && store != null;
 

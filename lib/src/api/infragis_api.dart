@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 
+import 'mns_client.dart';
+
 /// Error answered by the API (or the network). [status] is the HTTP status, 0 without a response.
 class ApiException implements Exception {
   const ApiException(this.message, {this.status = 0});
@@ -130,7 +132,7 @@ class FieldAuth {
     this.onRotated,
     http.Client? client,
     bool? web,
-  })  : _client = client ?? http.Client(),
+  })  : _client = MnsApiClient.wrap(client),
         web = web ?? kIsWeb;
 
   final String baseUrl;
@@ -192,7 +194,7 @@ class InfraGisApi implements FieldApi {
     this.environmentUuid,
     this.accountUuid,
     http.Client? client,
-  }) : _client = client ?? http.Client();
+  }) : _client = MnsApiClient.wrap(client);
 
   final String baseUrl;
   final FieldAuth? auth;

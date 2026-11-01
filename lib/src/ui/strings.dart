@@ -33,6 +33,11 @@ const _texts = <String, List<String>>{
     'A new InfraGIS version is ready. The page will reload; anything not synced yet stays on the device.',
     'Una nueva versión de InfraGIS está lista. La página se recargará; lo que no se sincronizó sigue guardado en el dispositivo.',
   ],
+  'updateUnsupported': [
+    'Esta versão do app não é mais aceita. Atualize o app pela loja ou com o administrador para continuar.',
+    'This app version is no longer supported. Update the app from the store or with your administrator to continue.',
+    'Esta versión de la app ya no es compatible. Actualice la app desde la tienda o con su administrador para continuar.',
+  ],
   'updateNow': ['Atualizar agora', 'Update now', 'Actualizar ahora'],
   'updateLater': ['Depois', 'Later', 'Después'],
   'installApp': ['Instalar app', 'Install app', 'Instalar app'],
