@@ -5,8 +5,16 @@ import 'app_update_controller.dart';
 
 /// Wraps the app and shows a "new version" card when a newer InfraGIS release goes live while the
 /// page stays open. It never reloads by itself and stays hidden while [busy] (a sync running).
+/// Installed apps only show the critical card (version no longer accepted), without buttons.
 class AppUpdateOverlay extends StatefulWidget {
-  const AppUpdateOverlay({super.key, required this.child, required this.busy, this.listenable, this.controller});
+  const AppUpdateOverlay({
+    super.key,
+    required this.child,
+    required this.busy,
+    this.listenable,
+    this.controller,
+    this.apiBase,
+  });
 
   final Widget child;
   final bool Function() busy;
@@ -15,12 +23,15 @@ class AppUpdateOverlay extends StatefulWidget {
   final Listenable? listenable;
   final AppUpdateController? controller;
 
+  /// API address for the client policy of installed apps (the same base as the other calls).
+  final Future<String?> Function()? apiBase;
+
   @override
   State<AppUpdateOverlay> createState() => _AppUpdateOverlayState();
 }
 
 class _AppUpdateOverlayState extends State<AppUpdateOverlay> {
-  late final AppUpdateController _controller = widget.controller ?? AppUpdateController();
+  late final AppUpdateController _controller = widget.controller ?? AppUpdateController(apiBase: widget.apiBase);
 
   // MaterialApp.builder sits above the Navigator and its Overlay, so the notice brings its own:
   // without one the close button tooltip throws on hover and the release build replaces the card
@@ -93,8 +104,9 @@ class _AppUpdateNotice extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
-    final version = controller.deployed?.version;
+    final version = controller.noticeVersion;
     final critical = controller.critical;
+    final web = controller.web;
     final title = tr(context, critical ? 'updateImportant' : 'updateAvailable');
 
     return Semantics(
@@ -127,36 +139,42 @@ class _AppUpdateNotice extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text.rich(TextSpan(
-                      text: title,
-                      style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-                      children: [
-                        if (version != null)
-                          TextSpan(
-                            text: '  v$version',
-                            style: textTheme.labelSmall?.copyWith(color: colorScheme.onSurfaceVariant),
-                          ),
-                      ],
-                    )),
+                    Text.rich(
+                      TextSpan(
+                        text: title,
+                        style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                        children: [
+                          if (version != null)
+                            TextSpan(
+                              text: '  v$version',
+                              style: textTheme.labelSmall?.copyWith(color: colorScheme.onSurfaceVariant),
+                            ),
+                        ],
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     Text(
-                      tr(context, 'updateHelp'),
+                      tr(context, web ? 'updateHelp' : 'updateUnsupported'),
                       style: textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant, height: 1.4),
                     ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      alignment: WrapAlignment.end,
-                      spacing: 8,
-                      runSpacing: 4,
-                      children: [
-                        if (!critical) TextButton(onPressed: controller.postpone, child: Text(tr(context, 'updateLater'))),
-                        FilledButton.icon(
-                          onPressed: controller.reloadNow,
-                          icon: const Icon(Icons.refresh, size: 18),
-                          label: Text(tr(context, 'updateNow')),
-                        ),
-                      ],
-                    ),
+                    // Installed apps update through their store or the administrator: no buttons.
+                    if (web) ...[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          if (!critical)
+                            TextButton(onPressed: controller.postpone, child: Text(tr(context, 'updateLater'))),
+                          FilledButton.icon(
+                            onPressed: controller.reloadNow,
+                            icon: const Icon(Icons.refresh, size: 18),
+                            label: Text(tr(context, 'updateNow')),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),

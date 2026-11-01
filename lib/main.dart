@@ -53,10 +53,12 @@ class MnsCloudInfraGisMobileApp extends StatelessWidget {
         'dark' => ThemeMode.dark,
         _ => ThemeMode.system,
       },
-      // Web only: a newer release shows a notice; "Update now" activates the new PWA revision.
+      // Web: a newer release shows a notice; "Update now" activates the new PWA revision.
+      // Installed apps: a critical notice when the client policy or the API no longer accepts them.
       builder: (context, child) => AppUpdateOverlay(
         busy: () => controller.syncing,
         listenable: controller,
+        apiBase: controller.apiBase,
         child: child ?? const SizedBox.shrink(),
       ),
       home: ListenableBuilder(
